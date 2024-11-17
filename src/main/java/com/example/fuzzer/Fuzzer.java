@@ -1,0 +1,91 @@
+package com.example.fuzzer;
+
+import com.example.fuzzer.execution.ExecutionResult;
+import com.example.fuzzer.execution.Executor;
+import com.example.fuzzer.execution.ProcessExecutor;
+import com.example.fuzzer.monitor.SimpleMonitor;
+import com.example.fuzzer.mutation.Mutator;
+import com.example.fuzzer.mutation.SimpleMutator;
+import com.example.fuzzer.schedule.Seed;
+import com.example.fuzzer.schedule.SimpleSeedScheduler;
+import com.example.fuzzer.sharedmemory.SharedMemoryManager;
+
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+public class Fuzzer {
+    public static void main(String[] args) throws IOException {
+        if (args.length < 1) {
+            System.out.println("请提供目标程序的路径。");
+            System.exit(1);
+        }
+
+        String targetProgramPath = args[0];
+
+        // 初始化共享内存
+        int mapSize = 65536;
+        SharedMemoryManager shmManager = new SharedMemoryManager(mapSize);
+        Executor executor = new ProcessExecutor(targetProgramPath, shmManager);
+        SimpleMonitor monitor = new SimpleMonitor(mapSize);
+
+        // 初始化种子调度器
+        byte[] seedInput = new byte[]{/* 初始输入，可以从文件读取 */};
+        Seed initialSeed = new Seed(seedInput);
+        SimpleSeedScheduler seedScheduler = new SimpleSeedScheduler(initialSeed);
+
+        // 初始化变异器
+        Mutator mutator = new SimpleMutator();
+
+        // 模糊测试循环
+        while (true) {
+            // 选择下一个种子
+            Seed currentSeed = seedScheduler.selectNextSeed();
+            if (currentSeed == null) {
+                System.out.println("种子池为空，测试结束。");
+                break;
+            }
+
+            // 根据能量值决定变异次数
+            for (int i = 0; i < currentSeed.getEnergy(); i++) {
+                // 生成新的测试用例
+                byte[] mutatedInput = mutator.mutate(currentSeed.getData());
+                ExecutionResult result = executor.execute(mutatedInput);
+
+                // 检查程序退出状态，处理崩溃等情况
+                if (result.getExitCode() != 0) {
+                    // 记录崩溃输入
+                    System.out.println("程序崩溃，退出码：" + result.getExitCode());
+                    // 保存崩溃的输入
+                    saveCrashInput(mutatedInput);
+                    continue;
+                }
+
+                // 监控并记录结果
+                monitor.recordResult(result);
+
+                // 判断是否有新的覆盖
+                if (monitor.hasNewCoverage(result.getCoverageData())) {
+                    // 添加为新的种子
+                    Seed newSeed = new Seed(mutatedInput);
+                    seedScheduler.addSeed(newSeed);
+                }
+            }
+        }
+
+        // 结束后，销毁共享内存
+        shmManager.destroySharedMemory();
+    }
+
+    // 保存崩溃输入的函数
+    private static void saveCrashInput(byte[] input) {
+        try {
+            // 保存到文件，命名方式可以自定义
+            String fileName = "crash_" + System.currentTimeMillis() + ".bin";
+            FileOutputStream fos = new FileOutputStream(fileName);
+            fos.write(input);
+            fos.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
