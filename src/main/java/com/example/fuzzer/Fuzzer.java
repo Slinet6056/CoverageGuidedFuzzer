@@ -14,6 +14,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 
 public class Fuzzer {
+    private static int crashCount = 0;  // 添加崩溃计数器
+
     public static void main(String[] args) throws IOException {
         if (args.length < 1) {
             System.out.println("请提供目标程序的路径。");
@@ -29,33 +31,50 @@ public class Fuzzer {
         SimpleMonitor monitor = new SimpleMonitor(mapSize);
 
         // 初始化种子调度器
-        byte[] seedInput = new byte[]{/* 初始输入，可以从文件读取 */};
+        byte[] seedInput = new byte[]{0x41, 0x42, 0x43, 0x44}; // 简单的ABCD字符串
         Seed initialSeed = new Seed(seedInput);
         SimpleSeedScheduler seedScheduler = new SimpleSeedScheduler(initialSeed);
 
         // 初始化变异器
         Mutator mutator = new SimpleMutator();
 
+        // 添加初始状态信息
+        System.out.println("初始化完成：");
+        System.out.println("- 共享内存大小: " + mapSize + " bytes");
+        System.out.println("- 目标程序路径: " + targetProgramPath);
+
         // 模糊测试循环
+        int totalExecutions = 0;
         while (true) {
-            // 选择下一个种子
             Seed currentSeed = seedScheduler.selectNextSeed();
             if (currentSeed == null) {
+                System.out.println("\n测试结束统计：");
+                System.out.println("- 总执行次数: " + totalExecutions);
+                System.out.println("- 发现的崩溃数: " + crashCount);
                 System.out.println("种子池为空，测试结束。");
                 break;
             }
 
-            // 根据能量值决定变异次数
+            // 添加当前种子信息
+            System.out.println("\n当前种子信息：");
+            System.out.println("- 种子大小: " + currentSeed.getData().length + " bytes");
+            System.out.println("- 剩余能量: " + currentSeed.getEnergy());
+
             for (int i = 0; i < currentSeed.getEnergy(); i++) {
-                // 生成新的测试用例
                 byte[] mutatedInput = mutator.mutate(currentSeed.getData());
                 ExecutionResult result = executor.execute(mutatedInput);
+                totalExecutions++;
+
+                if (totalExecutions % 100 == 0) {  // 每100次执行打印一次状态
+                    System.out.println("\n执行状态更新：");
+                    System.out.println("- 已执行次数: " + totalExecutions);
+                    System.out.println("- 当前种子池大小: " + seedScheduler.getQueueSize());
+                }
 
                 // 检查程序退出状态，处理崩溃等情况
                 if (result.getExitCode() != 0) {
-                    // 记录崩溃输入
                     System.out.println("程序崩溃，退出码：" + result.getExitCode());
-                    // 保存崩溃的输入
+                    crashCount++;  // 增加崩溃计数
                     saveCrashInput(mutatedInput);
                     continue;
                 }

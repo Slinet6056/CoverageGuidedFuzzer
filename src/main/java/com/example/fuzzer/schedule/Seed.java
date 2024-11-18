@@ -6,7 +6,7 @@ public class Seed {
 
     public Seed(byte[] data) {
         this.data = data;
-        this.energy = 1; // 默认能量值
+        this.energy = 10; // 默认能量值
     }
 
     // Getter 和 Setter 方法

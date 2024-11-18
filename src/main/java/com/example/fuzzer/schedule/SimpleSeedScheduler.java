@@ -12,10 +12,21 @@ public class SimpleSeedScheduler implements SeedScheduler {
 
     @Override
     public Seed selectNextSeed() {
-        return seedQueue.poll();
+        Seed seed = seedQueue.poll();
+        if (seed != null) {
+            if (seed.getEnergy() > 0) {
+                seed.setEnergy(seed.getEnergy() - 1);
+                seedQueue.offer(seed);
+            }
+        }
+        return seed;
     }
 
     public void addSeed(Seed seed) {
         seedQueue.offer(seed);
+    }
+
+    public int getQueueSize() {
+        return seedQueue.size();
     }
 }
