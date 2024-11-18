@@ -7,10 +7,14 @@ public class SimpleMutator implements Mutator {
 
     @Override
     public byte[] mutate(byte[] input) {
-        // 简单实现：随机修改一个字节
         byte[] mutatedInput = input.clone();
         int index = random.nextInt(mutatedInput.length);
         mutatedInput[index] = (byte) random.nextInt(256);
         return mutatedInput;
+    }
+
+    @Override
+    public String getMutationStrategy() {
+        return "simple_random";
     }
 }

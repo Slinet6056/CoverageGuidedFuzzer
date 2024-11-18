@@ -8,6 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+// TODO:
+// - 优化能量计算算法
+// - 考虑种子文件的复杂度
+// - 添加种子最小化功能
+// - 实现种子去重机制
 public class AFLSeedGenerator {
     private String aflInputDir;
 
@@ -42,6 +47,6 @@ public class AFLSeedGenerator {
     private int calculateInitialEnergy(int seedSize) {
         // 根据种子大小计算初始能量值
         // 这里使用一个简单的算法，可以根据需要调整
-        return Math.min(100, Math.max(10, seedSize / 2));
+        return Math.min(10, Math.max(10, seedSize / 2));
     }
 }
