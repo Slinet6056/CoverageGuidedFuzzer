@@ -1,13 +1,16 @@
 package com.example.fuzzer.schedule;
 
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Queue;
 
 public class SimpleSeedScheduler implements SeedScheduler {
     private Queue<Seed> seedQueue = new LinkedList<>();
 
-    public SimpleSeedScheduler(Seed initialSeed) {
-        seedQueue.offer(initialSeed);
+    public SimpleSeedScheduler(List<Seed> initialSeeds) {
+        if (initialSeeds != null && !initialSeeds.isEmpty()) {
+            seedQueue.addAll(initialSeeds);
+        }
     }
 
     @Override

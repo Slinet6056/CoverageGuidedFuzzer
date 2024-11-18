@@ -6,23 +6,26 @@ import com.example.fuzzer.execution.ProcessExecutor;
 import com.example.fuzzer.monitor.SimpleMonitor;
 import com.example.fuzzer.mutation.Mutator;
 import com.example.fuzzer.mutation.SimpleMutator;
+import com.example.fuzzer.schedule.AFLSeedGenerator;
 import com.example.fuzzer.schedule.Seed;
 import com.example.fuzzer.schedule.SimpleSeedScheduler;
 import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.List;
 
 public class Fuzzer {
     private static int crashCount = 0;  // 添加崩溃计数器
 
     public static void main(String[] args) throws IOException {
-        if (args.length < 1) {
-            System.out.println("请提供目标程序的路径。");
+        if (args.length < 2) {
+            System.out.println("用法: java Fuzzer <目标程序路径> <AFL种子目录>");
             System.exit(1);
         }
 
         String targetProgramPath = args[0];
+        String aflSeedDir = args[1];
 
         // 初始化共享内存
         int mapSize = 65536;
@@ -30,10 +33,18 @@ public class Fuzzer {
         Executor executor = new ProcessExecutor(targetProgramPath, shmManager);
         SimpleMonitor monitor = new SimpleMonitor(mapSize);
 
-        // 初始化种子调度器
-        byte[] seedInput = new byte[]{0x41, 0x42, 0x43, 0x44}; // 简单的ABCD字符串
-        Seed initialSeed = new Seed(seedInput);
-        SimpleSeedScheduler seedScheduler = new SimpleSeedScheduler(initialSeed);
+        // 初始化AFL种子生成器
+        AFLSeedGenerator seedGenerator = new AFLSeedGenerator(aflSeedDir);
+        List<Seed> initialSeeds = seedGenerator.generateInitialSeeds();
+
+        if (initialSeeds.isEmpty()) {
+            System.out.println("警告：没有找到初始种子，使用默认种子");
+            byte[] defaultSeed = new byte[]{0x41, 0x42, 0x43, 0x44};
+            initialSeeds.add(new Seed(defaultSeed));
+        }
+
+        // 使用新的种子初始化调度器
+        SimpleSeedScheduler seedScheduler = new SimpleSeedScheduler(initialSeeds);
 
         // 初始化变异器
         Mutator mutator = new SimpleMutator();
