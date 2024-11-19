@@ -1,5 +1,8 @@
-package com.example.fuzzer.schedule;
+package com.example.fuzzer.schedule.model;
 
+/**
+ * 表示一个模糊测试的输入种子
+ */
 public class Seed {
     private byte[] data;
     private int energy;
@@ -8,8 +11,6 @@ public class Seed {
         this.data = data;
         this.energy = 10; // 默认能量值
     }
-
-    // Getter 和 Setter 方法
 
     public byte[] getData() {
         return data;

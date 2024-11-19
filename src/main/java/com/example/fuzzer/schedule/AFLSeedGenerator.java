@@ -1,5 +1,7 @@
 package com.example.fuzzer.schedule;
 
+import com.example.fuzzer.schedule.model.Seed;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

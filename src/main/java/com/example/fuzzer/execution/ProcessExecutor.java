@@ -42,7 +42,9 @@ public class ProcessExecutor implements Executor {
             result.setExitCode(-1);
         } finally {
             if (inputFile != null && config.isDeleteInputFile()) {
-                inputFile.delete();
+                if (!inputFile.delete()) {
+                    inputFile.deleteOnExit();  // Fallback if immediate deletion fails
+                }
             }
             result.setExecutionTime(System.currentTimeMillis() - startTime);
         }
@@ -64,8 +66,8 @@ public class ProcessExecutor implements Executor {
             if (!outputDir.exists()) {
                 outputDir.mkdirs();
             }
-            pb.redirectOutput(new File(outputDir, "stdout.txt"));
-            pb.redirectError(new File(outputDir, "stderr.txt"));
+            // pb.redirectOutput(new File(outputDir, "stdout.txt"));
+            // pb.redirectError(new File(outputDir, "stderr.txt"));
         }
 
         int retryCount = 0;
@@ -111,8 +113,10 @@ public class ProcessExecutor implements Executor {
         try {
             tempFile = File.createTempFile(
                     config.getTempFilePrefix(),
-                    config.getTempFileSuffix()
+                    config.getTempFileSuffix(),
+                    new File(config.getOutputDir())  // Store temp files in output directory for better management
             );
+            tempFile.deleteOnExit();  // Register for deletion on JVM exit
             fos = new FileOutputStream(tempFile);
             fos.write(input);
             return tempFile;
@@ -127,6 +131,23 @@ public class ProcessExecutor implements Executor {
                     fos.close();
                 } catch (IOException e) {
                     // ignore
+                }
+            }
+        }
+    }
+
+    // Add new method for cleaning up stray files
+    public void cleanupStrayFiles() {
+        File outputDir = new File(config.getOutputDir());
+        if (outputDir.exists() && outputDir.isDirectory()) {
+            File[] strayFiles = outputDir.listFiles((dir, name) -> 
+                name.startsWith(config.getTempFilePrefix()) && name.endsWith(config.getTempFileSuffix()));
+            
+            if (strayFiles != null) {
+                for (File file : strayFiles) {
+                    if (!file.delete()) {
+                        file.deleteOnExit();
+                    }
                 }
             }
         }

@@ -2,48 +2,67 @@ package com.example.fuzzer.monitor;
 
 import com.example.fuzzer.execution.ExecutionResult;
 
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
+
 // TODO:
 // - 实现路径覆盖率统计
 // - 添加覆盖率可视化功能
 // - 实现覆盖率报告生成
 // - 添加分支覆盖率分析
 public class SimpleMonitor implements Monitor {
-    private byte[] globalCoverage;
-    private int mapSize;
-    private long startTime;
-    private long totalExecutions;
-    private long lastUpdateTime;
+    private final byte[] globalCoverage;
+    private final int mapSize;
+    private final long startTime;
+    private final AtomicLong totalExecutions;
+    private volatile long lastUpdateTime;
     private static final long UPDATE_INTERVAL = 1000; // 每秒更新一次
-    private int totalEdges;  // 添加总边数统计
-    private int coveredEdges;  // 添加已覆盖边数统计
+    private final int totalEdges;
+    private final AtomicInteger coveredEdges;
+    private final ReentrantLock coverageLock;
 
     public SimpleMonitor(int mapSize) {
         this.mapSize = mapSize;
         this.globalCoverage = new byte[mapSize];
         this.startTime = System.currentTimeMillis();
         this.lastUpdateTime = startTime;
-        this.totalExecutions = 0;
+        this.totalExecutions = new AtomicLong(0);
         this.totalEdges = mapSize;
-        this.coveredEdges = 0;
-        updateCoveredEdges();  // 初始化覆盖边数
+        this.coveredEdges = new AtomicInteger(0);
+        this.coverageLock = new ReentrantLock();
+        updateCoveredEdges();
     }
 
     @Override
     public void recordResult(ExecutionResult result) {
-        totalExecutions++;
+        if (result == null) {
+            return;
+        }
+        
+        totalExecutions.incrementAndGet();
         boolean newCoverage = false;
 
         // 记录边覆盖
         byte[] coverageData = result.getCoverageData();
-        for (int i = 0; i < mapSize; i++) {
-            if (globalCoverage[i] == 0 && coverageData[i] != 0) {
-                globalCoverage[i] = coverageData[i];
-                newCoverage = true;
-            }
+        if (coverageData == null) {
+            return;
         }
+        
+        coverageLock.lock();
+        try {
+            for (int i = 0; i < mapSize; i++) {
+                if (globalCoverage[i] == 0 && coverageData[i] != 0) {
+                    globalCoverage[i] = coverageData[i];
+                    newCoverage = true;
+                }
+            }
 
-        if (newCoverage) {
-            updateCoveredEdges();
+            if (newCoverage) {
+                updateCoveredEdges();
+            }
+        } finally {
+            coverageLock.unlock();
         }
 
         // 定期更新状态
@@ -54,19 +73,36 @@ public class SimpleMonitor implements Monitor {
         }
     }
 
+    public void updateStats(ExecutionResult result) {
+        if (result == null) {
+            return;
+        }
+        recordResult(result);
+    }
+
+    public void printStats() {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastUpdateTime >= UPDATE_INTERVAL) {
+            printStatus();
+            lastUpdateTime = currentTime;
+        }
+    }
+
     private void updateCoveredEdges() {
-        coveredEdges = 0;
+        int covered = 0;
         for (int i = 0; i < mapSize; i++) {
             if (globalCoverage[i] != 0) {
-                coveredEdges++;
+                covered++;
             }
         }
+        coveredEdges.set(covered);
     }
 
     private void printStatus() {
         long runTime = (System.currentTimeMillis() - startTime) / 1000;
-        double execPerSec = totalExecutions / (double) Math.max(runTime, 1);
-        double coveragePercent = (coveredEdges * 100.0) / totalEdges;
+        long totalExecs = totalExecutions.get();
+        double execPerSec = totalExecs / (double) Math.max(runTime, 1);
+        double coveragePercent = (coveredEdges.get() * 100.0) / totalEdges;
 
         // 清除当前行
         System.out.print("\r\033[K");
@@ -77,10 +113,10 @@ public class SimpleMonitor implements Monitor {
                         "执行速度: %,.0f/s " +
                         "覆盖率: %.2f%% (%d/%d)",
                 runTime / 3600, (runTime % 3600) / 60, runTime % 60,
-                totalExecutions,
+                totalExecs,
                 execPerSec,
                 coveragePercent,
-                coveredEdges,
+                coveredEdges.get(),
                 totalEdges);
 
         System.out.flush();
@@ -89,19 +125,24 @@ public class SimpleMonitor implements Monitor {
     public void printFinalStats() {
         System.out.println("\n\n最终测试统计:");
         System.out.println("============================");
-        System.out.printf("总执行次数: %d\n", totalExecutions);
+        System.out.printf("总执行次数: %d\n", totalExecutions.get());
         System.out.printf("总运行时间: %d秒\n", (System.currentTimeMillis() - startTime) / 1000);
         System.out.printf("最终覆盖率: %.2f%% (%d/%d)\n",
-                (coveredEdges * 100.0) / totalEdges, coveredEdges, totalEdges);
+                (coveredEdges.get() * 100.0) / totalEdges, coveredEdges.get(), totalEdges);
         System.out.println("============================");
     }
 
     public boolean hasNewCoverage(byte[] coverageData) {
-        for (int i = 0; i < mapSize; i++) {
-            if (globalCoverage[i] == 0 && coverageData[i] != 0) {
-                return true;
+        coverageLock.lock();
+        try {
+            for (int i = 0; i < mapSize; i++) {
+                if (globalCoverage[i] == 0 && coverageData[i] != 0) {
+                    return true;
+                }
             }
+            return false;
+        } finally {
+            coverageLock.unlock();
         }
-        return false;
     }
 }
