@@ -42,9 +42,7 @@ public class ProcessExecutor implements Executor {
             result.setExitCode(-1);
         } finally {
             if (inputFile != null && config.isDeleteInputFile()) {
-                if (!inputFile.delete()) {
-                    inputFile.deleteOnExit();  // Fallback if immediate deletion fails
-                }
+                inputFile.delete();  // Just try to delete, ignore if it fails
             }
             result.setExecutionTime(System.currentTimeMillis() - startTime);
         }
@@ -116,7 +114,6 @@ public class ProcessExecutor implements Executor {
                     config.getTempFileSuffix(),
                     new File(config.getOutputDir())  // Store temp files in output directory for better management
             );
-            tempFile.deleteOnExit();  // Register for deletion on JVM exit
             fos = new FileOutputStream(tempFile);
             fos.write(input);
             return tempFile;
@@ -146,7 +143,7 @@ public class ProcessExecutor implements Executor {
             if (strayFiles != null) {
                 for (File file : strayFiles) {
                     if (!file.delete()) {
-                        file.deleteOnExit();
+                        // Silently continue if deletion fails
                     }
                 }
             }
