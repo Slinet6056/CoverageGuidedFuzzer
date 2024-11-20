@@ -15,6 +15,7 @@ import com.example.fuzzer.schedule.model.Seed;
 import com.example.fuzzer.schedule.sort.SeedSorter;
 import com.example.fuzzer.schedule.sort.SeedSorterFactory;
 import com.example.fuzzer.sharedmemory.SharedMemoryManager;
+import org.apache.commons.cli.*;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -94,33 +95,96 @@ public class Fuzzer {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.out.println("用法: java Fuzzer <目标程序路径> <AFL种子目录> [运行时长(分钟)]");
-            System.exit(1);
-        }
+        Options options = new Options();
+
+        // 添加命令行选项
+        options.addOption(Option.builder("p")
+                .longOpt("program")
+                .desc("目标程序路径")
+                .hasArg()
+                .required()
+                .build());
+
+        options.addOption(Option.builder("s")
+                .longOpt("seed-dir")
+                .desc("AFL种子目录")
+                .hasArg()
+                .required()
+                .build());
+
+        options.addOption(Option.builder("t")
+                .longOpt("time")
+                .desc("运行时长(分钟)")
+                .hasArg()
+                .type(Number.class)
+                .build());
+
+        options.addOption(Option.builder("m")
+                .longOpt("mutator")
+                .desc("变异策略 (AFL, RANDOM)")
+                .hasArg()
+                .build());
+
+        options.addOption(Option.builder("e")
+                .longOpt("energy")
+                .desc("能量调度策略 (BASIC, COVERAGE_BASED)")
+                .hasArg()
+                .build());
+
+        options.addOption(Option.builder("ss")
+                .longOpt("seed-sort")
+                .desc("种子排序策略 (FIFO, COVERAGE, EXECUTION_TIME, HEURISTIC)")
+                .hasArg()
+                .build());
+
+        options.addOption(Option.builder("j")
+                .longOpt("threads")
+                .desc("线程数量")
+                .hasArg()
+                .type(Number.class)
+                .build());
+
+        CommandLineParser parser = new DefaultParser();
+        HelpFormatter formatter = new HelpFormatter();
 
         try {
-            Fuzzer fuzzer = new Fuzzer(args[0], args[1]);
+            CommandLine cmd = parser.parse(options, args);
 
-            // 如果指定了运行时长，设置定时
-            if (args.length >= 3) {
-                try {
-                    long durationMinutes = Long.parseLong(args[2]);
-                    if (durationMinutes <= 0) {
-                        System.out.println("运行时长必须大于0分钟");
-                        System.exit(1);
-                    }
-                    fuzzer.setDurationMinutes(durationMinutes);
-                    System.out.println("- 设置运行时长: " + durationMinutes + " 分钟");
-                } catch (NumberFormatException e) {
-                    System.out.println("运行时长必须是有效的数字（分钟）");
-                    System.exit(1);
-                }
+            String targetProgram = cmd.getOptionValue("program");
+            String seedDir = cmd.getOptionValue("seed-dir");
+
+            // 解析可选参数
+            Mutator.MutatorType mutatorType = cmd.hasOption("mutator")
+                    ? Mutator.MutatorType.valueOf(cmd.getOptionValue("mutator").toUpperCase())
+                    : DEFAULT_MUTATOR_TYPE;
+
+            EnergyScheduler.Type energyType = cmd.hasOption("energy")
+                    ? EnergyScheduler.Type.valueOf(cmd.getOptionValue("energy").toUpperCase())
+                    : DEFAULT_ENERGY_SCHEDULER_TYPE;
+
+            SeedSorter.Type sorterType = cmd.hasOption("seed-sort")
+                    ? SeedSorter.Type.valueOf(cmd.getOptionValue("seed-sort").toUpperCase())
+                    : DEFAULT_SEED_SORTER_TYPE;
+
+            int threads = cmd.hasOption("threads")
+                    ? ((Number) cmd.getParsedOptionValue("threads")).intValue()
+                    : Runtime.getRuntime().availableProcessors();
+
+            Fuzzer fuzzer = new Fuzzer(targetProgram, seedDir, mutatorType, energyType, sorterType, threads);
+
+            if (cmd.hasOption("time")) {
+                int minutes = ((Number) cmd.getParsedOptionValue("time")).intValue();
+                fuzzer.setDurationMinutes(minutes);
             }
 
             fuzzer.run();
-        } catch (IOException e) {
-            System.err.println("初始化Fuzzer失败: " + e.getMessage());
+
+        } catch (ParseException e) {
+            System.out.println(e.getMessage());
+            formatter.printHelp("Fuzzer", options);
+            System.exit(1);
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
