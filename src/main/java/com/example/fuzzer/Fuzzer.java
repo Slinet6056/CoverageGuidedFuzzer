@@ -10,7 +10,10 @@ import com.example.fuzzer.mutation.MutatorFactory;
 import com.example.fuzzer.schedule.AFLSeedGenerator;
 import com.example.fuzzer.schedule.core.AFLScheduler;
 import com.example.fuzzer.schedule.core.SeedScheduler;
+import com.example.fuzzer.schedule.energy.EnergyScheduler;
 import com.example.fuzzer.schedule.model.Seed;
+import com.example.fuzzer.schedule.sort.SeedSorter;
+import com.example.fuzzer.schedule.sort.SeedSorterFactory;
 import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 
 import java.io.IOException;
@@ -32,31 +35,46 @@ import java.util.concurrent.atomic.AtomicInteger;
 // - 添加配置文件支持
 // - 实现实时监控界面
 public class Fuzzer {
-    private static final String MUTATOR_TYPE = "afl";
+    private static final Mutator.MutatorType DEFAULT_MUTATOR_TYPE = Mutator.MutatorType.AFL;
+    private static final EnergyScheduler.Type DEFAULT_ENERGY_SCHEDULER_TYPE = EnergyScheduler.Type.COVERAGE_BASED;
+    private static final SeedSorter.Type DEFAULT_SEED_SORTER_TYPE = SeedSorter.Type.HEURISTIC;
     private static final int MAP_SIZE = 65536;
 
     private final String targetProgramPath;
     private final String aflSeedDir;
+    private final Mutator.MutatorType mutatorType;
+    private final EnergyScheduler.Type energySchedulerType;
+    private final SeedSorter.Type seedSorterType;
     private final SimpleMonitor monitor;
     private final SharedMemoryManager shmManager;
     private final Executor executor;
     private final SeedScheduler scheduler;
+    private final SeedSorter seedSorter;
     private final Mutator mutator;
     private final int numThreads;
     private final ExecutorService executorService;
     private final AtomicInteger totalExecutions;
-    private volatile boolean isRunning;
     private final AtomicInteger crashCount;
-    private volatile long endTimeMillis;  // 结束时间（毫秒）
     private final List<Executor> executors = new ArrayList<>();
+    private volatile boolean isRunning;
+    private volatile long endTimeMillis;  // 结束时间（毫秒）
 
     public Fuzzer(String targetProgramPath, String aflSeedDir) throws IOException {
-        this(targetProgramPath, aflSeedDir, Runtime.getRuntime().availableProcessors());
+        this(targetProgramPath, aflSeedDir, DEFAULT_MUTATOR_TYPE, DEFAULT_ENERGY_SCHEDULER_TYPE, DEFAULT_SEED_SORTER_TYPE);
     }
 
-    public Fuzzer(String targetProgramPath, String aflSeedDir, int numThreads) throws IOException {
+    public Fuzzer(String targetProgramPath, String aflSeedDir, Mutator.MutatorType mutatorType,
+                  EnergyScheduler.Type energySchedulerType, SeedSorter.Type seedSorterType) throws IOException {
+        this(targetProgramPath, aflSeedDir, mutatorType, energySchedulerType, seedSorterType, Runtime.getRuntime().availableProcessors());
+    }
+
+    public Fuzzer(String targetProgramPath, String aflSeedDir, Mutator.MutatorType mutatorType,
+                  EnergyScheduler.Type energySchedulerType, SeedSorter.Type seedSorterType, int numThreads) throws IOException {
         this.targetProgramPath = targetProgramPath;
         this.aflSeedDir = aflSeedDir;
+        this.mutatorType = mutatorType;
+        this.energySchedulerType = energySchedulerType;
+        this.seedSorterType = seedSorterType;
         this.numThreads = numThreads;
         this.isRunning = true;
         this.crashCount = new AtomicInteger(0);
@@ -68,14 +86,49 @@ public class Fuzzer {
         this.monitor = new SimpleMonitor(MAP_SIZE);
         this.executor = createExecutor();
         this.scheduler = createScheduler();
-        this.mutator = MutatorFactory.createMutator(MUTATOR_TYPE);
+        this.mutator = MutatorFactory.createMutator(mutatorType);
+        this.seedSorter = SeedSorterFactory.createSorter(seedSorterType);
 
         setupShutdownHook();
         this.endTimeMillis = Long.MAX_VALUE;  // 默认运行时间无限长
     }
 
+    public static void main(String[] args) {
+        if (args.length < 2) {
+            System.out.println("用法: java Fuzzer <目标程序路径> <AFL种子目录> [运行时长(分钟)]");
+            System.exit(1);
+        }
+
+        try {
+            Fuzzer fuzzer = new Fuzzer(args[0], args[1]);
+
+            // 如果指定了运行时长，设置定时
+            if (args.length >= 3) {
+                try {
+                    long durationMinutes = Long.parseLong(args[2]);
+                    if (durationMinutes <= 0) {
+                        System.out.println("运行时长必须大于0分钟");
+                        System.exit(1);
+                    }
+                    fuzzer.setDurationMinutes(durationMinutes);
+                    System.out.println("- 设置运行时长: " + durationMinutes + " 分钟");
+                } catch (NumberFormatException e) {
+                    System.out.println("运行时长必须是有效的数字（分钟）");
+                    System.exit(1);
+                }
+            }
+
+            fuzzer.run();
+        } catch (IOException e) {
+            System.err.println("初始化Fuzzer失败: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
     /**
      * 设置模糊测试运行时长
+     *
      * @param minutes 运行时长（分钟）
      */
     public void setDurationMinutes(long minutes) {
@@ -99,12 +152,10 @@ public class Fuzzer {
         List<Seed> initialSeeds = seedGenerator.generateInitialSeeds();
 
         if (initialSeeds.isEmpty()) {
-            System.out.println("警告：没有找到初始种子，使用默认种子");
-            byte[] defaultSeed = new byte[]{0x41, 0x42, 0x43, 0x44};
-            initialSeeds.add(new Seed(defaultSeed));
+            throw new IOException("No initial seeds found in directory: " + aflSeedDir);
         }
 
-        return new AFLScheduler(initialSeeds);
+        return new AFLScheduler(initialSeeds, energySchedulerType);
     }
 
     private void setupShutdownHook() {
@@ -147,7 +198,7 @@ public class Fuzzer {
             // 检查是否达到指定运行时长
             if (System.currentTimeMillis() >= endTimeMillis) {
                 isRunning = false;
-                System.out.println("已达到指定运行时长，测试结束");
+                System.out.println("\n已达到指定运行时长，测试结束");
                 break;
             }
 
@@ -172,12 +223,12 @@ public class Fuzzer {
 
                 // 更新监控信息
                 monitor.updateStats(result);
-                
+
                 // Periodically clean up stray files (every 1000 executions)
                 if (totalExecutions.get() % 1000 == 0 && threadExecutor instanceof ProcessExecutor) {
                     ((ProcessExecutor) threadExecutor).cleanupStrayFiles();
                 }
-                
+
                 if (totalExecutions.get() % 100 == 0) {
                     monitor.printStats();
                 }
@@ -207,9 +258,16 @@ public class Fuzzer {
 
         if (monitor.hasNewCoverage(result.getCoverageData())) {
             Seed newSeed = new Seed(mutatedInput);
-            newSeed.setEnergy(calculateNewSeedEnergy(result));
+            int energy = calculateNewSeedEnergy(result);
+            newSeed.setEnergy(energy);
             scheduler.addSeed(newSeed);
-            System.out.println("添加新种子，当前种子池大小: " + scheduler.getQueueSize());
+
+            // Update seed performance metrics
+            scheduler.updatePerformance(mutatedInput, result.getExecutionTime(), 1);
+            seedSorter.updateSeedPerformance(mutatedInput, result.getExecutionTime(), 1);
+        } else {
+            scheduler.updatePerformance(mutatedInput, result.getExecutionTime(), 0);
+            seedSorter.updateSeedPerformance(mutatedInput, result.getExecutionTime(), 0);
         }
     }
 
@@ -217,7 +275,7 @@ public class Fuzzer {
         if (shmManager != null) {
             shmManager.destroySharedMemory();
         }
-        
+
         // Clean up any stray files
         for (Executor executor : executors) {
             if (executor instanceof ProcessExecutor) {
@@ -227,46 +285,36 @@ public class Fuzzer {
     }
 
     private int calculateNewSeedEnergy(ExecutionResult result) {
-        // TODO: 实现更复杂的能量计算逻辑
-        return 10;
+        if (result == null) {
+            return 10; // 默认能量值
+        }
+
+        final double COVERAGE_WEIGHT = 2.0;  // 覆盖率权重
+        final double TIME_WEIGHT = 0.5;      // 时间权重
+        final int MIN_ENERGY = 1;            // 最小能量值
+        final int INITIAL_ENERGY = 10;       // 初始能量值
+        final double ENERGY_LIMIT_FACTOR = 3.0;  // 能量上限因子
+
+        // 计算覆盖率分数 - 基于是否有新的覆盖
+        double coverageScore = result.getCoverageData() != null && monitor.hasNewCoverage(result.getCoverageData()) ?
+                COVERAGE_WEIGHT : 0;
+
+        // 计算时间效率分数 - 执行时间越短，分数越高
+        double timeScore = 1.0 / Math.max(1, Math.sqrt(result.getExecutionTime())) * TIME_WEIGHT;
+
+        // 如果发现了新的覆盖，给予额外奖励
+        double newCoverageBonus = monitor.hasNewCoverage(result.getCoverageData()) ? 2.0 : 1.0;
+
+        // 综合评分计算新的能量值
+        int energy = (int) (INITIAL_ENERGY * (coverageScore + timeScore) * newCoverageBonus);
+
+        // 限制能量范围
+        return Math.max(MIN_ENERGY, Math.min(energy, (int) (INITIAL_ENERGY * ENERGY_LIMIT_FACTOR)));
     }
 
     private void printInitialInfo() {
         System.out.println("- 共享内存大小: " + MAP_SIZE + " bytes");
         System.out.println("- 目标程序路径: " + targetProgramPath);
-        System.out.println("- 使用变异器类型: " + MUTATOR_TYPE);
-    }
-
-    public static void main(String[] args) {
-        if (args.length < 2) {
-            System.out.println("用法: java Fuzzer <目标程序路径> <AFL种子目录> [运行时长(分钟)]");
-            System.exit(1);
-        }
-
-        try {
-            Fuzzer fuzzer = new Fuzzer(args[0], args[1]);
-            
-            // 如果指定了运行时长，设置定时
-            if (args.length >= 3) {
-                try {
-                    long durationMinutes = Long.parseLong(args[2]);
-                    if (durationMinutes <= 0) {
-                        System.out.println("运行时长必须大于0分钟");
-                        System.exit(1);
-                    }
-                    fuzzer.setDurationMinutes(durationMinutes);
-                    System.out.println("- 设置运行时长: " + durationMinutes + " 分钟");
-                } catch (NumberFormatException e) {
-                    System.out.println("运行时长必须是有效的数字（分钟）");
-                    System.exit(1);
-                }
-            }
-            
-            fuzzer.run();
-        } catch (IOException e) {
-            System.err.println("初始化Fuzzer失败: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(1);
-        }
+        System.out.println("- 使用变异器类型: " + mutatorType);
     }
 }

@@ -1,8 +1,10 @@
 package com.example.fuzzer.schedule.core;
 
-import com.example.fuzzer.schedule.energy.AFLEnergyScheduler;
+import com.example.fuzzer.schedule.energy.EnergyScheduler;
+import com.example.fuzzer.schedule.energy.EnergySchedulerFactory;
 import com.example.fuzzer.schedule.model.Seed;
-import com.example.fuzzer.schedule.sort.AFLSeedSorter;
+import com.example.fuzzer.schedule.sort.SeedSorter;
+import com.example.fuzzer.schedule.sort.SeedSorterFactory;
 
 import java.util.List;
 
@@ -10,12 +12,20 @@ import java.util.List;
  * AFL风格的调度器，组合了种子排序器和能量调度器
  */
 public class AFLScheduler implements SeedScheduler {
-    private final AFLSeedSorter seedSorter;
-    private final AFLEnergyScheduler energyScheduler;
+    private final SeedSorter seedSorter;
+    private final EnergyScheduler energyScheduler;
 
     public AFLScheduler(List<Seed> initialSeeds) {
-        this.seedSorter = new AFLSeedSorter();
-        this.energyScheduler = new AFLEnergyScheduler();
+        this(initialSeeds, EnergyScheduler.Type.COVERAGE_BASED, SeedSorter.Type.HEURISTIC);
+    }
+
+    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType) {
+        this(initialSeeds, energySchedulerType, SeedSorter.Type.HEURISTIC);
+    }
+
+    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter.Type sorterType) {
+        this.seedSorter = SeedSorterFactory.createSorter(sorterType);
+        this.energyScheduler = EnergySchedulerFactory.createEnergyScheduler(energySchedulerType);
 
         if (initialSeeds != null) {
             for (Seed seed : initialSeeds) {
@@ -25,6 +35,9 @@ public class AFLScheduler implements SeedScheduler {
     }
 
     public void addSeed(Seed seed) {
+        if (seed == null || seed.getData() == null) {
+            throw new IllegalArgumentException("Seed or seed data cannot be null");
+        }
         byte[] data = seed.getData();
         seedSorter.addSeed(data);
         energyScheduler.assignEnergy(data);
@@ -46,12 +59,12 @@ public class AFLScheduler implements SeedScheduler {
         return new Seed(data);
     }
 
-    public void updatePerformance(byte[] data, int executionTime, int newBranches) {
+    public void updatePerformance(byte[] data, long executionTime, int newBranches) {
         seedSorter.updateSeedPerformance(data, executionTime, newBranches);
         energyScheduler.updateEnergy(data, executionTime, newBranches);
     }
 
     public int getQueueSize() {
-        return seedSorter.getQueueSize();
+        return seedSorter.size();
     }
 }

@@ -25,7 +25,7 @@ public interface SeedSorter {
      * @param executionTime 执行时间
      * @param newBranches   新发现的分支数
      */
-    void updateSeedPerformance(byte[] data, int executionTime, int newBranches);
+    void updateSeedPerformance(byte[] data, long executionTime, int newBranches);
 
     /**
      * 获取种子数量
@@ -38,4 +38,21 @@ public interface SeedSorter {
      * 清空种子
      */
     void clear();
+
+    /**
+     * 获取排序器类型
+     *
+     * @return 排序器类型
+     */
+    Type getType();
+
+    /**
+     * 添加新的枚举类型
+     */
+    enum Type {
+        FIFO,           // 按入队顺序
+        COVERAGE,       // 按覆盖率
+        EXECUTION_TIME, // 按执行时间
+        HEURISTIC      // 启发式排序
+    }
 }

@@ -3,10 +3,6 @@ package com.example.fuzzer.mutation;
 import java.util.Random;
 
 public class AFLMutator implements Mutator {
-    private final Random random = new Random();
-    private String currentStrategy = "none";
-    private int mutationPower = 1;
-
     // 预定义的有趣值
     private static final byte[] INTERESTING_8 = {
             -128, -1, 0, 1, 16, 32, 64, 100, 127
@@ -17,6 +13,9 @@ public class AFLMutator implements Mutator {
     private static final int[] INTERESTING_32 = {
             -2147483648, -100663046, -32769, 32768, 65535, 65536, 100663045, 2147483647
     };
+    private final Random random = new Random();
+    private MutationStrategy currentStrategy = MutationStrategy.NONE;
+    private int mutationPower = 1;
 
     @Override
     public byte[] mutate(byte[] input) {
@@ -26,19 +25,19 @@ public class AFLMutator implements Mutator {
 
         switch (strategy) {
             case 0:
-                currentStrategy = "bitflip";
+                currentStrategy = MutationStrategy.BITFLIP;
                 return bitFlip(mutated);
             case 1:
-                currentStrategy = "arithmetic";
+                currentStrategy = MutationStrategy.ARITHMETIC;
                 return arithmetic(mutated);
             case 2:
-                currentStrategy = "interesting";
+                currentStrategy = MutationStrategy.INTERESTING;
                 return insertInterestingValues(mutated);
             case 3:
-                currentStrategy = "havoc";
+                currentStrategy = MutationStrategy.HAVOC;
                 return havoc(mutated);
             case 4:
-                currentStrategy = "splice";
+                currentStrategy = MutationStrategy.SPLICE;
                 return splice(mutated, input);
             default:
                 return mutated;
@@ -46,7 +45,12 @@ public class AFLMutator implements Mutator {
     }
 
     @Override
-    public String getMutationStrategy() {
+    public MutatorType getType() {
+        return MutatorType.AFL;
+    }
+
+    @Override
+    public MutationStrategy getCurrentStrategy() {
         return currentStrategy;
     }
 
@@ -162,4 +166,4 @@ public class AFLMutator implements Mutator {
 
         return result;
     }
-} 
+}

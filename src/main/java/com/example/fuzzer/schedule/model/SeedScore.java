@@ -5,26 +5,28 @@ package com.example.fuzzer.schedule.model;
  */
 public class SeedScore {
     private final byte[] data;
-    private int executionTime;
+    private long executionTime;
     private int newBranches;
     private float score;
+    private int cycles;  // 执行次数
 
     public SeedScore(byte[] data) {
         this.data = data;
-        this.executionTime = 0;
+        this.executionTime = 0L;
         this.newBranches = 0;
         this.score = 0;
+        this.cycles = 0;
     }
 
     public byte[] getData() {
         return data;
     }
 
-    public int getExecutionTime() {
+    public long getExecutionTime() {
         return executionTime;
     }
 
-    public void setExecutionTime(int executionTime) {
+    public void setExecutionTime(long executionTime) {
         this.executionTime = executionTime;
     }
 
@@ -42,5 +44,17 @@ public class SeedScore {
 
     public void setScore(float score) {
         this.score = score;
+    }
+
+    public int getCycles() {
+        return cycles;
+    }
+
+    public void incrementCycles() {
+        this.cycles++;
+    }
+
+    public void resetCycles() {
+        this.cycles = 0;
     }
 }

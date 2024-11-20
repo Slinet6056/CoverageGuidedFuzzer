@@ -2,8 +2,8 @@ package com.example.fuzzer.monitor;
 
 import com.example.fuzzer.execution.ExecutionResult;
 
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
 // TODO:
@@ -12,15 +12,15 @@ import java.util.concurrent.locks.ReentrantLock;
 // - 实现覆盖率报告生成
 // - 添加分支覆盖率分析
 public class SimpleMonitor implements Monitor {
+    private static final long UPDATE_INTERVAL = 1000; // 每秒更新一次
     private final byte[] globalCoverage;
     private final int mapSize;
     private final long startTime;
     private final AtomicLong totalExecutions;
-    private volatile long lastUpdateTime;
-    private static final long UPDATE_INTERVAL = 1000; // 每秒更新一次
     private final int totalEdges;
     private final AtomicInteger coveredEdges;
     private final ReentrantLock coverageLock;
+    private volatile long lastUpdateTime;
 
     public SimpleMonitor(int mapSize) {
         this.mapSize = mapSize;
@@ -39,7 +39,7 @@ public class SimpleMonitor implements Monitor {
         if (result == null) {
             return;
         }
-        
+
         totalExecutions.incrementAndGet();
         boolean newCoverage = false;
 
@@ -48,7 +48,7 @@ public class SimpleMonitor implements Monitor {
         if (coverageData == null) {
             return;
         }
-        
+
         coverageLock.lock();
         try {
             for (int i = 0; i < mapSize; i++) {

@@ -140,9 +140,9 @@ public class ProcessExecutor implements Executor {
     public void cleanupStrayFiles() {
         File outputDir = new File(config.getOutputDir());
         if (outputDir.exists() && outputDir.isDirectory()) {
-            File[] strayFiles = outputDir.listFiles((dir, name) -> 
-                name.startsWith(config.getTempFilePrefix()) && name.endsWith(config.getTempFileSuffix()));
-            
+            File[] strayFiles = outputDir.listFiles((dir, name) ->
+                    name.startsWith(config.getTempFilePrefix()) && name.endsWith(config.getTempFileSuffix()));
+
             if (strayFiles != null) {
                 for (File file : strayFiles) {
                     if (!file.delete()) {
