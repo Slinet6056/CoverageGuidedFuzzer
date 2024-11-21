@@ -99,27 +99,25 @@ public class SimpleMonitor implements Monitor {
     }
 
     private void printStatus() {
-        long runTime = (System.currentTimeMillis() - startTime) / 1000;
+        long currentTime = System.currentTimeMillis();
+        long runTime = (currentTime - startTime) / 1000;  // Convert to seconds
         long totalExecs = totalExecutions.get();
-        double execPerSec = totalExecs / (double) Math.max(runTime, 1);
+        double execPerSec = totalExecs / Math.max(1, runTime);
         double coveragePercent = (coveredEdges.get() * 100.0) / totalEdges;
 
-        // 清除当前行
-        System.out.print("\r\033[K");
-
-        // 输出状态信息
-        System.out.printf("\r[%02d:%02d:%02d] " +
-                        "执行次数: %-8d " +
-                        "执行速度: %,.0f/s " +
-                        "覆盖率: %.2f%% (%d/%d)",
-                runTime / 3600, (runTime % 3600) / 60, runTime % 60,
-                totalExecs,
-                execPerSec,
-                coveragePercent,
-                coveredEdges.get(),
-                totalEdges);
-
-        System.out.flush();
+        // 每10秒打印一次完整状态，不清屏
+        if (runTime % 10 == 0) {
+            System.out.printf("\n[%02d:%02d:%02d] " +
+                            "执行次数: %-8d " +
+                            "执行速度: %,.0f/s " +
+                            "覆盖率: %.2f%% (%d/%d)\n",
+                    runTime / 3600, (runTime % 3600) / 60, runTime % 60,
+                    totalExecs,
+                    execPerSec,
+                    coveragePercent,
+                    coveredEdges.get(),
+                    totalEdges);
+        }
     }
 
     public void printFinalStats() {

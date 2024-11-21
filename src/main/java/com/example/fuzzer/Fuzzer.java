@@ -59,6 +59,7 @@ public class Fuzzer {
     private final List<Executor> executors = new ArrayList<>();
     private volatile boolean isRunning;
     private volatile long endTimeMillis;  // 结束时间（毫秒）
+    private String[] programArgs = new String[0];  // 新增
 
     public Fuzzer(String targetProgramPath, String aflSeedDir) throws IOException {
         this(targetProgramPath, aflSeedDir, DEFAULT_MUTATOR_TYPE, DEFAULT_ENERGY_SCHEDULER_TYPE, DEFAULT_SEED_SORTER_TYPE);
@@ -144,6 +145,12 @@ public class Fuzzer {
                 .type(Number.class)
                 .build());
 
+        options.addOption(Option.builder("c")
+                .longOpt("target-cmdline")
+                .desc("目标程序的完整命令行，使用@@作为输入文件占位符。例如：'-a @@' 或 '-d @@'")
+                .hasArg()
+                .build());
+
         CommandLineParser parser = new DefaultParser();
         HelpFormatter formatter = new HelpFormatter();
 
@@ -170,7 +177,11 @@ public class Fuzzer {
                     ? ((Number) cmd.getParsedOptionValue("threads")).intValue()
                     : Runtime.getRuntime().availableProcessors();
 
+            String targetCmdline = cmd.getOptionValue("target-cmdline", "@@");  // 默认只使用@@
+            String[] programArgs = targetCmdline.split("\\s+");  // 按空格分割命令行
+
             Fuzzer fuzzer = new Fuzzer(targetProgram, seedDir, mutatorType, energyType, sorterType, threads);
+            fuzzer.setProgramArgs(programArgs);  // 新增
 
             if (cmd.hasOption("time")) {
                 int minutes = ((Number) cmd.getParsedOptionValue("time")).intValue();
@@ -201,12 +212,17 @@ public class Fuzzer {
         }
     }
 
+    public void setProgramArgs(String[] args) {  // 新增
+        this.programArgs = args != null ? args : new String[0];
+    }
+
     private Executor createExecutor() {
         ExecutorConfig config = new ExecutorConfig.Builder()
-                .timeout(5)
+                .timeout(30)  // 从5秒增加到30秒
                 .maxRetries(3)
                 .redirectOutput(true)
                 .outputDir("fuzz_output")
+                .commandArgs(programArgs)  // 新增
                 .build();
         return new ProcessExecutor(targetProgramPath, shmManager, config);
     }

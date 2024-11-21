@@ -8,6 +8,7 @@ public class ExecutorConfig {
     private String tempFileSuffix = ".tmp";
     private boolean redirectOutput = false;
     private String outputDir = "output";
+    private String[] commandArgs = new String[0];  // 命令行参数数组
 
     // getter 和 setter 方法
     public int getTimeoutSeconds() {
@@ -78,6 +79,14 @@ public class ExecutorConfig {
         this.outputDir = outputDir;
     }
 
+    public String[] getCommandArgs() {
+        return commandArgs;
+    }
+
+    public void setCommandArgs(String[] commandArgs) {
+        this.commandArgs = commandArgs != null ? commandArgs : new String[0];
+    }
+
     // Builder 模式
     public static class Builder {
         private ExecutorConfig config = new ExecutorConfig();
@@ -114,6 +123,11 @@ public class ExecutorConfig {
 
         public Builder outputDir(String dir) {
             config.setOutputDir(dir);
+            return this;
+        }
+
+        public Builder commandArgs(String... args) {
+            config.setCommandArgs(args);
             return this;
         }
 
