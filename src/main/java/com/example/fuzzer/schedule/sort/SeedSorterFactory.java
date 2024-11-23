@@ -1,7 +1,7 @@
 package com.example.fuzzer.schedule.sort;
 
 public class SeedSorterFactory {
-    public static SeedSorter createSorter(SeedSorter.Type type) {
+    public static SeedSorter createSeedSorter(SeedSorter.Type type) {
         switch (type) {
             case FIFO:
                 return new FIFOSeedSorter();
@@ -15,4 +15,4 @@ public class SeedSorterFactory {
                 throw new UnsupportedOperationException("Unsupported SeedSorter type: " + type);
         }
     }
-} 
+}
