@@ -12,6 +12,11 @@ public class Seed {
         this.energy = 10; // 默认能量值
     }
 
+    public Seed(byte[] data, int energy) {
+        this.data = data;
+        this.energy = energy;
+    }
+
     public byte[] getData() {
         return data;
     }

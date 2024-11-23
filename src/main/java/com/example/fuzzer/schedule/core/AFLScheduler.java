@@ -24,7 +24,7 @@ public class AFLScheduler implements SeedScheduler {
     }
 
     public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter.Type sorterType) {
-        this.seedSorter = SeedSorterFactory.createSorter(sorterType);
+        this.seedSorter = SeedSorterFactory.createSeedSorter(sorterType);
         this.energyScheduler = EnergySchedulerFactory.createEnergyScheduler(energySchedulerType);
 
         if (initialSeeds != null) {

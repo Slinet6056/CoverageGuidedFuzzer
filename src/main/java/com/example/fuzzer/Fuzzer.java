@@ -4,7 +4,7 @@ import com.example.fuzzer.execution.ExecutionResult;
 import com.example.fuzzer.execution.Executor;
 import com.example.fuzzer.execution.ExecutorConfig;
 import com.example.fuzzer.execution.ProcessExecutor;
-import com.example.fuzzer.monitor.SimpleMonitor;
+import com.example.fuzzer.monitor.AFLMonitor;
 import com.example.fuzzer.mutation.Mutator;
 import com.example.fuzzer.mutation.MutatorFactory;
 import com.example.fuzzer.schedule.AFLSeedGenerator;
@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 // TODO:
 // - 添加模糊测试统计信息
@@ -46,7 +47,7 @@ public class Fuzzer {
     private final Mutator.MutatorType mutatorType;
     private final EnergyScheduler.Type energySchedulerType;
     private final SeedSorter.Type seedSorterType;
-    private final SimpleMonitor monitor;
+    private final AFLMonitor monitor;
     private final SharedMemoryManager shmManager;
     private final Executor executor;
     private final SeedScheduler scheduler;
@@ -54,12 +55,13 @@ public class Fuzzer {
     private final Mutator mutator;
     private final int numThreads;
     private final ExecutorService executorService;
-    private final AtomicInteger totalExecutions;
+    private final AtomicLong totalExecutions;
     private final AtomicInteger crashCount;
-    private final List<Executor> executors = new ArrayList<>();
+    private List<Executor> executors = new ArrayList<>();
     private volatile boolean isRunning;
     private volatile long endTimeMillis;  // 结束时间（毫秒）
     private String[] programArgs = new String[0];  // 新增
+    private String outputDir;  // 新增
 
     public Fuzzer(String targetProgramPath, String aflSeedDir) throws IOException {
         this(targetProgramPath, aflSeedDir, DEFAULT_MUTATOR_TYPE, DEFAULT_ENERGY_SCHEDULER_TYPE, DEFAULT_SEED_SORTER_TYPE);
@@ -79,20 +81,45 @@ public class Fuzzer {
         this.seedSorterType = seedSorterType;
         this.numThreads = numThreads;
         this.isRunning = true;
-        this.crashCount = new AtomicInteger(0);
-        this.totalExecutions = new AtomicInteger(0);
         this.executorService = Executors.newFixedThreadPool(numThreads);
+        this.executors = new ArrayList<>();
+        this.totalExecutions = new AtomicLong(0);
+        this.crashCount = new AtomicInteger(0);
 
-        // 初始化组件
+        // 初始化输出目录
+        String outputPath = "fuzz_output/" + System.currentTimeMillis();
+        this.outputDir = outputPath;
+
+        // 初始化监控器
+        this.monitor = new AFLMonitor(MAP_SIZE, outputPath);
+
+        // 初始化共享内存管理器
         this.shmManager = new SharedMemoryManager(MAP_SIZE);
-        this.monitor = new SimpleMonitor(MAP_SIZE);
-        this.executor = createExecutor();
-        this.scheduler = createScheduler();
-        this.mutator = MutatorFactory.createMutator(mutatorType);
-        this.seedSorter = SeedSorterFactory.createSorter(seedSorterType);
 
+        // 初始化执行器
+        ExecutorConfig config = new ExecutorConfig.Builder()
+                .timeout(5)
+                .build();
+        this.executor = new ProcessExecutor(targetProgramPath, shmManager, config);
+
+        // 初始化种子排序器
+        this.seedSorter = SeedSorterFactory.createSeedSorter(seedSorterType);
+
+        // 初始化变异器
+        this.mutator = MutatorFactory.createMutator(mutatorType);
+
+        // 初始化调度器
+        List<Seed> initialSeeds = new ArrayList<>();  // 初始为空，稍后通过loadSeeds添加
+        this.scheduler = new AFLScheduler(initialSeeds, energySchedulerType);
+
+        // 加载种子
+        loadSeeds();
+
+        // 设置默认运行时间（无限）
+        this.endTimeMillis = Long.MAX_VALUE;
+
+        // 设置关闭钩子
         setupShutdownHook();
-        this.endTimeMillis = Long.MAX_VALUE;  // 默认运行时间无限长
     }
 
     public static void main(String[] args) {
@@ -212,16 +239,18 @@ public class Fuzzer {
         }
     }
 
-    public void setProgramArgs(String[] args) {  // 新增
+    public void setProgramArgs(String[] args) throws IOException {
         this.programArgs = args != null ? args : new String[0];
+        // 保存命令行到输出目录
+        ((AFLMonitor) monitor).getOutputManager().writeCmdline(args);
     }
 
     private Executor createExecutor() {
         ExecutorConfig config = new ExecutorConfig.Builder()
-                .timeout(30)  // 从5秒增加到30秒
+                .timeout(5)
                 .maxRetries(3)
                 .redirectOutput(true)
-                .outputDir("fuzz_output")
+                .outputDir(outputDir)  // 新增
                 .commandArgs(programArgs)  // 新增
                 .build();
         return new ProcessExecutor(targetProgramPath, shmManager, config);
@@ -325,7 +354,7 @@ public class Fuzzer {
         try {
             String crashFileName = String.format("crash-%d-exitcode-%d",
                     crashCount.get(), result.getExitCode());
-            Path crashPath = Paths.get("crashes", crashFileName);
+            Path crashPath = Paths.get(outputDir, "crashes", crashFileName);  // 修改输出目录
             Files.createDirectories(crashPath.getParent());
             Files.write(crashPath, result.getInput());
         } catch (IOException e) {
@@ -364,6 +393,20 @@ public class Fuzzer {
         }
     }
 
+    private void loadSeeds() throws IOException {
+        AFLSeedGenerator seedGenerator = new AFLSeedGenerator(aflSeedDir);
+        List<Seed> initialSeeds = seedGenerator.generateInitialSeeds();
+
+        if (initialSeeds.isEmpty()) {
+            throw new IOException("No initial seeds found in directory: " + aflSeedDir);
+        }
+
+        // Add seeds one by one instead of using addSeeds
+        for (Seed seed : initialSeeds) {
+            scheduler.addSeed(seed);
+        }
+    }
+
     private int calculateNewSeedEnergy(ExecutionResult result) {
         if (result == null) {
             return 10; // 默认能量值
@@ -396,5 +439,6 @@ public class Fuzzer {
         System.out.println("- 共享内存大小: " + MAP_SIZE + " bytes");
         System.out.println("- 目标程序路径: " + targetProgramPath);
         System.out.println("- 使用变异器类型: " + mutatorType);
+        System.out.println("- 输出目录: " + outputDir);  // 新增
     }
 }
