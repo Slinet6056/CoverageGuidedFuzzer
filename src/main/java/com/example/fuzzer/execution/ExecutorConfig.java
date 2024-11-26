@@ -9,6 +9,7 @@ public class ExecutorConfig {
     private boolean redirectOutput = false;
     private String outputDir = "output";
     private String[] commandArgs = new String[0];  // 命令行参数数组
+    private boolean multipleInputs = false;  // 新增：是否使用多输入模式
 
     // getter 和 setter 方法
     public int getTimeoutSeconds() {
@@ -87,6 +88,14 @@ public class ExecutorConfig {
         this.commandArgs = commandArgs != null ? commandArgs : new String[0];
     }
 
+    public boolean isMultipleInputs() {  // 新增
+        return multipleInputs;
+    }
+
+    public void setMultipleInputs(boolean multipleInputs) {  // 新增
+        this.multipleInputs = multipleInputs;
+    }
+
     // Builder 模式
     public static class Builder {
         private ExecutorConfig config = new ExecutorConfig();
@@ -126,8 +135,13 @@ public class ExecutorConfig {
             return this;
         }
 
-        public Builder commandArgs(String... args) {
+        public Builder commandArgs(String[] args) {
             config.setCommandArgs(args);
+            return this;
+        }
+
+        public Builder multipleInputs(boolean multipleInputs) {  // 新增
+            config.setMultipleInputs(multipleInputs);
             return this;
         }
 
@@ -135,4 +149,4 @@ public class ExecutorConfig {
             return config;
         }
     }
-} 
+}

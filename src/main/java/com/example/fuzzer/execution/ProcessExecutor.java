@@ -4,7 +4,6 @@ import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 
 import java.io.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -26,24 +25,60 @@ public class ProcessExecutor implements Executor {
 
     @Override
     public ExecutionResult execute(byte[] input) {
+        return executeMultipleInputs(new byte[][]{input});
+    }
+
+    @Override
+    public ExecutionResult executeMultipleInputs(byte[][] inputs) {
         ExecutionResult result = new ExecutionResult();
-        File inputFile = null;
+        List<File> inputFiles = new ArrayList<>();
         long startTime = System.currentTimeMillis();
 
         try {
-            inputFile = writeInputToFile(input);
-            if (inputFile == null) {
-                throw new IOException("Failed to create input file");
+            // Count how many @@ we need
+            int inputFileCount = 0;
+            for (String arg : config.getCommandArgs()) {
+                if (arg.equals("@@")) {
+                    inputFileCount++;
+                }
             }
 
-            result = executeProcess(inputFile, input);
+            // Validate input count
+            if (inputFileCount > 0 && inputFileCount != inputs.length) {
+                throw new IOException("Number of @@ arguments (" + inputFileCount + 
+                    ") doesn't match number of inputs (" + inputs.length + ")");
+            }
+
+            // Create input files
+            if (inputFileCount > 0) {
+                // Create files for each input when we have @@ arguments
+                for (int i = 0; i < inputs.length; i++) {
+                    File inputFile = writeInputToFile(inputs[i]);
+                    if (inputFile == null) {
+                        throw new IOException("Failed to create input file " + (i + 1));
+                    }
+                    inputFiles.add(inputFile);
+                }
+            } else if (inputs.length > 0) {
+                // If no @@ but we have input, create one file for stdin
+                File inputFile = writeInputToFile(inputs[0]);
+                if (inputFile == null) {
+                    throw new IOException("Failed to create input file");
+                }
+                inputFiles.add(inputFile);
+            }
+
+            result = executeProcess(inputFiles, inputs);
 
         } catch (Exception e) {
             result.setErrorMessage(e.getMessage());
             result.setExitCode(-1);
         } finally {
-            if (inputFile != null && config.isDeleteInputFile()) {
-                inputFile.delete();  // Just try to delete, ignore if it fails
+            if (config.isDeleteInputFile()) {
+                // Clean up all created input files
+                for (File file : inputFiles) {
+                    file.delete();
+                }
             }
             result.setExecutionTime(System.currentTimeMillis() - startTime);
         }
@@ -51,26 +86,36 @@ public class ProcessExecutor implements Executor {
         return result;
     }
 
-    private ExecutionResult executeProcess(File inputFile, byte[] input) throws IOException, InterruptedException {
+    private ExecutionResult executeProcess(List<File> inputFiles, byte[][] inputs) throws IOException, InterruptedException {
         ExecutionResult result = new ExecutionResult();
-        result.setInput(input);
+        // Store all inputs in result
+        byte[] combinedInput = new byte[0];
+        for (byte[] input : inputs) {
+            byte[] newCombined = new byte[combinedInput.length + input.length];
+            System.arraycopy(combinedInput, 0, newCombined, 0, combinedInput.length);
+            System.arraycopy(input, 0, newCombined, combinedInput.length, input.length);
+            combinedInput = newCombined;
+        }
+        result.setInput(combinedInput);
 
         // 构建命令行参数列表
         List<String> command = new ArrayList<>();
         command.add(targetProgramPath);
 
         // 添加用户配置的命令行参数，替换@@为输入文件路径
+        boolean hasInputFileArg = false;
+        int fileIndex = 0;
+        
         for (String arg : config.getCommandArgs()) {
             if (arg.equals("@@")) {
-                command.add(inputFile.getAbsolutePath());
+                if (fileIndex < inputFiles.size()) {
+                    command.add(inputFiles.get(fileIndex).getAbsolutePath());
+                    fileIndex++;
+                    hasInputFileArg = true;
+                }
             } else {
                 command.add(arg);
             }
-        }
-
-        // 如果没有配置任何参数或没有@@占位符，则默认将输入文件作为最后一个参数
-        if (config.getCommandArgs().length == 0 || !Arrays.asList(config.getCommandArgs()).contains("@@")) {
-            command.add(inputFile.getAbsolutePath());
         }
 
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -88,6 +133,15 @@ public class ProcessExecutor implements Executor {
         int retryCount = 0;
         while (retryCount <= config.getMaxRetries()) {
             Process process = pb.start();
+
+            // 如果没有通过命令行参数指定输入文件，则通过标准输入传入第一个输入
+            if (!hasInputFileArg && inputs.length > 0) {
+                try (OutputStream stdin = process.getOutputStream()) {
+                    stdin.write(inputs[0]);
+                    stdin.flush();
+                }
+            }
+
             boolean finished = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
 
             if (!finished) {

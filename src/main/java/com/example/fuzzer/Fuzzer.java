@@ -204,7 +204,7 @@ public class Fuzzer {
                     ? ((Number) cmd.getParsedOptionValue("threads")).intValue()
                     : Runtime.getRuntime().availableProcessors();
 
-            String targetCmdline = cmd.getOptionValue("target-cmdline", "@@");  // 默认只使用@@
+            String targetCmdline = cmd.getOptionValue("target-cmdline", "");
             String[] programArgs = targetCmdline.split("\\s+");  // 按空格分割命令行
 
             Fuzzer fuzzer = new Fuzzer(targetProgram, seedDir, mutatorType, energyType, sorterType, threads);
@@ -250,10 +250,23 @@ public class Fuzzer {
                 .timeout(5)
                 .maxRetries(3)
                 .redirectOutput(true)
-                .outputDir(outputDir)  // 新增
-                .commandArgs(programArgs)  // 新增
+                .outputDir(outputDir)
+                .commandArgs(programArgs)
+                .multipleInputs(hasMultipleInputs())  // 新增：根据命令行参数判断是否需要多输入
                 .build();
         return new ProcessExecutor(targetProgramPath, shmManager, config);
+    }
+
+    // 新增：判断是否需要多输入模式
+    private boolean hasMultipleInputs() {
+        if (programArgs == null) return false;
+        int count = 0;
+        for (String arg : programArgs) {
+            if ("@@".equals(arg)) {
+                count++;
+            }
+        }
+        return count > 1;
     }
 
     private SeedScheduler createScheduler() throws IOException {
@@ -319,7 +332,25 @@ public class Fuzzer {
 
                 // 执行变异和测试
                 byte[] mutatedInput = mutator.mutate(currentSeed.getData());
-                ExecutionResult result = threadExecutor.execute(mutatedInput);
+                ExecutionResult result;
+                
+                if (hasMultipleInputs()) {
+                    // 如果是多输入模式，为每个 @@ 创建一个变异后的输入
+                    int inputCount = 0;
+                    for (String arg : programArgs) {
+                        if ("@@".equals(arg)) {
+                            inputCount++;
+                        }
+                    }
+                    byte[][] inputs = new byte[inputCount][];
+                    for (int i = 0; i < inputCount; i++) {
+                        inputs[i] = mutator.mutate(currentSeed.getData());
+                    }
+                    result = threadExecutor.executeMultipleInputs(inputs);
+                } else {
+                    result = threadExecutor.execute(mutatedInput);
+                }
+                
                 totalExecutions.incrementAndGet();
 
                 // 处理执行结果
