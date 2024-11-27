@@ -7,6 +7,7 @@ public class ExecutionResult {
     private long executionTime;
     private boolean timeout;
     private String errorMessage;
+    private long executionCount = 0;
 
     public ExecutionResult() {
         this.executionTime = 0;
@@ -61,5 +62,13 @@ public class ExecutionResult {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public long getExecutionCount() {
+        return executionCount;
+    }
+
+    public void setExecutionCount(long executionCount) {
+        this.executionCount = executionCount;
     }
 }

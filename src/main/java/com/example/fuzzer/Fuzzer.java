@@ -18,9 +18,6 @@ import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 import org.apache.commons.cli.*;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -92,6 +89,7 @@ public class Fuzzer {
 
         // 初始化监控器
         this.monitor = new AFLMonitor(MAP_SIZE, outputPath);
+        this.monitor.setTargetInfo(targetProgramPath, programArgs);
 
         // 初始化共享内存管理器
         this.shmManager = new SharedMemoryManager(MAP_SIZE);
@@ -241,8 +239,11 @@ public class Fuzzer {
 
     public void setProgramArgs(String[] args) throws IOException {
         this.programArgs = args != null ? args : new String[0];
-        // 保存命令行到输出目录
-        ((AFLMonitor) monitor).getOutputManager().writeCmdline(args);
+        // 写入命令行到文件
+        String[] fullArgs = new String[programArgs.length + 1];
+        fullArgs[0] = targetProgramPath;
+        System.arraycopy(programArgs, 0, fullArgs, 1, programArgs.length);
+        ((AFLMonitor) monitor).getOutputManager().writeCmdline(fullArgs);
     }
 
     private Executor createExecutor() {
@@ -332,8 +333,11 @@ public class Fuzzer {
 
                 // 执行变异和测试
                 byte[] mutatedInput = mutator.mutate(currentSeed.getData());
-                ExecutionResult result;
-                
+
+                // 创建新的执行结果对象
+                ExecutionResult result = new ExecutionResult();
+                result.setInput(mutatedInput);
+
                 if (hasMultipleInputs()) {
                     // 如果是多输入模式，为每个 @@ 创建一个变异后的输入
                     int inputCount = 0;
@@ -346,11 +350,23 @@ public class Fuzzer {
                     for (int i = 0; i < inputCount; i++) {
                         inputs[i] = mutator.mutate(currentSeed.getData());
                     }
-                    result = threadExecutor.executeMultipleInputs(inputs);
+                    ExecutionResult multiResult = threadExecutor.executeMultipleInputs(inputs);
+                    // 复制执行结果
+                    result.setCoverageData(multiResult.getCoverageData());
+                    result.setExitCode(multiResult.getExitCode());
+                    result.setErrorMessage(multiResult.getErrorMessage());
+                    result.setExecutionTime(multiResult.getExecutionTime());
+                    result.setTimeout(multiResult.isTimeout());
                 } else {
-                    result = threadExecutor.execute(mutatedInput);
+                    ExecutionResult execResult = threadExecutor.execute(mutatedInput);
+                    // 复制执行结果
+                    result.setCoverageData(execResult.getCoverageData());
+                    result.setExitCode(execResult.getExitCode());
+                    result.setErrorMessage(execResult.getErrorMessage());
+                    result.setExecutionTime(execResult.getExecutionTime());
+                    result.setTimeout(execResult.isTimeout());
                 }
-                
+
                 totalExecutions.incrementAndGet();
 
                 // 处理执行结果
@@ -375,21 +391,6 @@ public class Fuzzer {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        }
-    }
-
-    private void handleCrash(ExecutionResult result) {
-        if (result == null || result.getInput() == null) {
-            return;
-        }
-        try {
-            String crashFileName = String.format("crash-%d-exitcode-%d",
-                    crashCount.get(), result.getExitCode());
-            Path crashPath = Paths.get(outputDir, "crashes", crashFileName);  // 修改输出目录
-            Files.createDirectories(crashPath.getParent());
-            Files.write(crashPath, result.getInput());
-        } catch (IOException e) {
-            System.err.println("保存崩溃样例失败: " + e.getMessage());
         }
     }
 

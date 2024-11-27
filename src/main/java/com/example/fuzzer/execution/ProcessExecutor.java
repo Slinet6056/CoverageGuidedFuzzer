@@ -45,8 +45,8 @@ public class ProcessExecutor implements Executor {
 
             // Validate input count
             if (inputFileCount > 0 && inputFileCount != inputs.length) {
-                throw new IOException("Number of @@ arguments (" + inputFileCount + 
-                    ") doesn't match number of inputs (" + inputs.length + ")");
+                throw new IOException("Number of @@ arguments (" + inputFileCount +
+                        ") doesn't match number of inputs (" + inputs.length + ")");
             }
 
             // Create input files
@@ -105,7 +105,7 @@ public class ProcessExecutor implements Executor {
         // 添加用户配置的命令行参数，替换@@为输入文件路径
         boolean hasInputFileArg = false;
         int fileIndex = 0;
-        
+
         for (String arg : config.getCommandArgs()) {
             if (arg.equals("@@")) {
                 if (fileIndex < inputFiles.size()) {

@@ -3,11 +3,6 @@ package com.example.fuzzer.monitor;
 import com.example.fuzzer.execution.ExecutionResult;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -37,12 +32,22 @@ public class AFLMonitor implements Monitor {
     private final ReentrantLock outputLock = new ReentrantLock(); // 新增：输出锁
     private volatile long lastUpdateTime;
     private volatile double peakExecSpeed;  // 新增：峰值执行速度
+    private String targetProgram;
+    private String[] programArgs;
+    private String outputPath;
+    private volatile long lastFindTime;
+    private volatile long lastCrashTime;
+    private volatile long lastHangTime;
 
     public AFLMonitor(int mapSize, String outputPath) throws IOException {
         this.mapSize = mapSize;
+        this.outputPath = outputPath;
         this.globalCoverage = new byte[mapSize];
         this.startTime = System.currentTimeMillis();
         this.lastUpdateTime = startTime;
+        this.lastFindTime = startTime;
+        this.lastCrashTime = 0;
+        this.lastHangTime = 0;
         this.totalExecutions = new AtomicLong(0);
         this.totalEdges = mapSize;
         this.coveredEdges = new AtomicInteger(0);
@@ -56,17 +61,20 @@ public class AFLMonitor implements Monitor {
         this.lastCoverageIncrease = new AtomicLong(startTime);  // 新增
         this.peakExecSpeed = 0.0;  // 新增
         updateCoveredEdges();
+    }
 
-        // 写入初始设置信息
-        writeFuzzerSetup();
+    public void setTargetInfo(String targetProgram, String[] programArgs) {
+        this.targetProgram = targetProgram;
+        this.programArgs = programArgs;
+        try {
+            writeFuzzerSetup();
+        } catch (IOException e) {
+            System.err.println("Error writing fuzzer setup: " + e.getMessage());
+        }
     }
 
     private void writeFuzzerSetup() throws IOException {
-        StringBuilder setup = new StringBuilder();
-        setup.append("start_time     : ").append(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)).append("\n");
-        setup.append("fuzzer_pid     : ").append(ProcessHandle.current().pid()).append("\n");
-        setup.append("map_size       : ").append(mapSize).append("\n");
-        outputManager.writeFuzzerSetup(setup.toString());
+        outputManager.writeFuzzerSetup(targetProgram, programArgs, outputPath);
     }
 
     @Override
@@ -75,7 +83,8 @@ public class AFLMonitor implements Monitor {
             return;
         }
 
-        totalExecutions.incrementAndGet();
+        long execCount = totalExecutions.incrementAndGet();
+        result.setExecutionCount(execCount);
         boolean newCoverage = false;
 
         // 记录边覆盖
@@ -85,9 +94,6 @@ public class AFLMonitor implements Monitor {
         }
 
         try {
-            // 保存当前输入
-            outputManager.saveCurrentInput(result.getInput());
-
             coverageLock.lock();
             try {
                 for (int i = 0; i < mapSize; i++) {
@@ -97,12 +103,13 @@ public class AFLMonitor implements Monitor {
                     }
                 }
 
+                // 保存所有输入到队列
+                String id = String.format("%06d", queueCount.incrementAndGet());
+                outputManager.saveQueueInput(result.getInput(), id, result, newCoverage);
+
                 if (newCoverage) {
                     updateCoveredEdges();
-                    // 保存产生新覆盖的输入
-                    String id = String.format("%06d", queueCount.incrementAndGet());
-                    outputManager.saveQueueInput(result.getInput(), id);
-
+                    lastFindTime = System.currentTimeMillis();
                     // 只在发现新覆盖时更新统计信息
                     updateStats();
                 }
@@ -118,10 +125,12 @@ public class AFLMonitor implements Monitor {
                 // 保存超时输入
                 outputManager.saveHangInput(result.getInput(), result.getExecutionTime());
                 hangCount.incrementAndGet();
+                lastHangTime = System.currentTimeMillis();
             } else if (result.getExitCode() != 0) {
                 // 保存crash输入
                 outputManager.saveCrashInput(result.getInput(), result.getExitCode());
                 crashCount.incrementAndGet();
+                lastCrashTime = System.currentTimeMillis();
             }
 
         } catch (IOException e) {
@@ -150,29 +159,37 @@ public class AFLMonitor implements Monitor {
         double execPerSec = totalExecs / Math.max(1, runTime);
         double coveragePercent = (coveredEdges.get() * 100.0) / totalEdges;
 
-        StringBuilder stats = new StringBuilder();
-        stats.append("start_time     : ").append(startTime).append("\n");
-        stats.append("run_time       : ").append(runTime).append("\n");
-        stats.append("total_execs    : ").append(totalExecs).append("\n");
-        stats.append("execs_per_sec  : ").append(String.format("%.2f", execPerSec)).append("\n");
-        stats.append("paths_total    : ").append(queueCount.get()).append("\n");
-        stats.append("paths_crashed  : ").append(outputManager.getUniqueCrashCount()).append("\n");
-        stats.append("paths_hanged   : ").append(outputManager.getUniqueHangCount()).append("\n");
-        stats.append("coverage       : ").append(String.format("%.2f%%", coveragePercent)).append("\n");
-        stats.append("edges_covered  : ").append(coveredEdges.get()).append("\n");
-        stats.append("total_edges    : ").append(totalEdges).append("\n");
-
-        outputManager.updateFuzzerStats(stats.toString());
+        outputManager.updateFuzzerStats(
+                startTime,
+                totalExecs,
+                execPerSec,
+                queueCount.get(),
+                crashCount.get(),
+                hangCount.get(),
+                coveragePercent,
+                coveredEdges.get(),
+                lastFindTime,
+                lastCrashTime,
+                lastHangTime
+        );
 
         // 更新plot_data
         String plotLine = String.format("%d,%d,%d,%d,%d,%.2f\n",
                 runTime,
                 totalExecs,
                 queueCount.get(),
-                outputManager.getUniqueCrashCount(),
-                outputManager.getUniqueHangCount(),
+                crashCount.get(),
+                hangCount.get(),
                 coveragePercent);
         outputManager.appendPlotData(plotLine);
+
+        // 生成可读的覆盖率报告
+        try {
+            outputManager.writeCoverageReport(globalCoverage, totalExecutions, startTime,
+                    peakExecSpeed, queueCount.get(), crashCount.get(), hangCount.get());
+        } catch (IOException e) {
+            System.err.println("生成覆盖率报告失败: " + e.getMessage());
+        }
     }
 
     public void updateStats(ExecutionResult result) {
@@ -348,56 +365,14 @@ public class AFLMonitor implements Monitor {
 
             // 生成覆盖率报告
             try {
-                generateCoverageReport();
+                outputManager.writeCoverageReport(globalCoverage, totalExecutions, startTime,
+                        peakExecSpeed, queueCount.get(), crashCount.get(), hangCount.get());
             } catch (IOException e) {
                 System.err.println("生成覆盖率报告失败: " + e.getMessage());
             }
         } finally {
             outputLock.unlock();
         }
-    }
-
-    private void generateCoverageReport() throws IOException {
-        // 生成HTML格式的覆盖率报告
-        StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html>\n")
-                .append("<html><head><title>Coverage Report</title>\n")
-                .append("<style>\n")
-                .append("body { font-family: Arial, sans-serif; margin: 20px; }\n")
-                .append(".progress-bar { width: 100%; background-color: #f0f0f0; }\n")
-                .append(".progress { height: 20px; background-color: #4CAF50; }\n")
-                .append(".stats { margin: 20px 0; }\n")
-                .append(".stats table { border-collapse: collapse; width: 100%; }\n")
-                .append(".stats td, .stats th { border: 1px solid #ddd; padding: 8px; }\n")
-                .append(".stats th { background-color: #4CAF50; color: white; }\n")
-                .append("</style></head><body>\n")
-                .append("<h1>Fuzzing Coverage Report</h1>\n");
-
-        // 添加覆盖率进度条
-        double coveragePercent = (coveredEdges.get() * 100.0) / totalEdges;
-        html.append("<div class='progress-bar'>\n")
-                .append("<div class='progress' style='width: ").append(coveragePercent).append("%'></div>\n")
-                .append("</div>\n")
-                .append("<p>Coverage: ").append(String.format("%.2f%%", coveragePercent)).append("</p>\n");
-
-        // 添加统计表格
-        html.append("<div class='stats'>\n")
-                .append("<table>\n")
-                .append("<tr><th>Metric</th><th>Value</th></tr>\n")
-                .append(String.format("<tr><td>Total Executions</td><td>%,d</td></tr>\n", totalExecutions.get()))
-                .append(String.format("<tr><td>Execution Speed</td><td>%,.0f/s</td></tr>\n",
-                        totalExecutions.get() / Math.max(1, (System.currentTimeMillis() - startTime) / 1000.0)))
-                .append(String.format("<tr><td>Peak Speed</td><td>%,.0f/s</td></tr>\n", peakExecSpeed))
-                .append(String.format("<tr><td>Queue Size</td><td>%d</td></tr>\n", queueCount.get()))
-                .append(String.format("<tr><td>Crashes</td><td>%d</td></tr>\n", outputManager.getUniqueCrashCount()))
-                .append(String.format("<tr><td>Hangs</td><td>%d</td></tr>\n", outputManager.getUniqueHangCount()))
-                .append("</table>\n")
-                .append("</div>\n")
-                .append("</body></html>");
-
-        // 写入覆盖率报告
-        Path reportPath = outputManager.getOutputDir().resolve("coverage_report.html");
-        Files.write(reportPath, html.toString().getBytes(), StandardOpenOption.CREATE);
     }
 
     public boolean hasNewCoverage(byte[] coverageData) {

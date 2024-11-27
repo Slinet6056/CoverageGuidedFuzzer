@@ -34,6 +34,7 @@ public class AFLScheduler implements SeedScheduler {
         }
     }
 
+    @Override
     public void addSeed(Seed seed) {
         if (seed == null || seed.getData() == null) {
             throw new IllegalArgumentException("Seed or seed data cannot be null");
