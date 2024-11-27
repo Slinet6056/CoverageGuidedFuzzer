@@ -3,6 +3,7 @@ package com.example.fuzzer.execution;
 import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -88,15 +89,16 @@ public class ProcessExecutor implements Executor {
 
     private ExecutionResult executeProcess(List<File> inputFiles, byte[][] inputs) throws IOException, InterruptedException {
         ExecutionResult result = new ExecutionResult();
-        // Store all inputs in result
-        byte[] combinedInput = new byte[0];
+        // 使用ByteBuffer优化内存使用
+        int totalLength = 0;
         for (byte[] input : inputs) {
-            byte[] newCombined = new byte[combinedInput.length + input.length];
-            System.arraycopy(combinedInput, 0, newCombined, 0, combinedInput.length);
-            System.arraycopy(input, 0, newCombined, combinedInput.length, input.length);
-            combinedInput = newCombined;
+            totalLength += input.length;
         }
-        result.setInput(combinedInput);
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        for (byte[] input : inputs) {
+            buffer.put(input);
+        }
+        result.setInput(buffer.array());
 
         List<String> command = new ArrayList<>();
         command.add(targetProgramPath);
@@ -222,17 +224,20 @@ public class ProcessExecutor implements Executor {
     }
 
     private void cleanupProcess(Process process) {
-        if (process.isAlive()) {
-            process.destroy();
+        if (process != null && process.isAlive()) {
             try {
-                if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
+                process.destroy();
+                // 给进程一点时间来正常终止
+                if (!process.waitFor(1, TimeUnit.SECONDS)) {
                     process.destroyForcibly();
+                    // 再次等待，确保进程被终止
                     if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
                         System.err.println("警告：进程无法被终止 (PID: " + process.pid() + ")");
                     }
                 }
             } catch (InterruptedException e) {
                 process.destroyForcibly();
+                Thread.currentThread().interrupt(); // 保留中断状态
             }
         }
     }

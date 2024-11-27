@@ -21,7 +21,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,9 +52,9 @@ public class Fuzzer {
     private final SeedSorter seedSorter;
     private final Mutator mutator;
     private final int numThreads;
-    private final ExecutorService executorService;
     private final AtomicLong totalExecutions;
     private final AtomicInteger crashCount;
+    private ExecutorService executorService;
     private List<Executor> executors = new ArrayList<>();
     private volatile boolean isRunning;
     private volatile long endTimeMillis;  // 结束时间（毫秒）
@@ -79,7 +80,7 @@ public class Fuzzer {
         this.seedSorterType = seedSorterType;
         this.numThreads = numThreads;
         this.isRunning = true;
-        this.executorService = Executors.newFixedThreadPool(numThreads);
+        initializeExecutors();
         this.executors = new ArrayList<>();
         this.totalExecutions = new AtomicLong(0);
         this.crashCount = new AtomicInteger(0);
@@ -240,6 +241,17 @@ public class Fuzzer {
         }
     }
 
+    private void initializeExecutors() {
+        // 使用有界线程池，避免创建过多线程
+        this.executorService = new ThreadPoolExecutor(
+                numThreads, // 核心线程数
+                numThreads, // 最大线程数
+                60L, TimeUnit.SECONDS, // 空闲线程存活时间
+                new LinkedBlockingQueue<>(1000), // 使用有界队列
+                new ThreadPoolExecutor.CallerRunsPolicy() // 队列满时，在调用者线程中执行
+        );
+    }
+
     /**
      * 设置模糊测试运行时长
      *
@@ -257,7 +269,7 @@ public class Fuzzer {
         String[] fullArgs = new String[programArgs.length + 1];
         fullArgs[0] = targetProgramPath;
         System.arraycopy(programArgs, 0, fullArgs, 1, programArgs.length);
-        ((AFLMonitor) monitor).getOutputManager().writeCmdline(fullArgs);
+        monitor.getOutputManager().writeCmdline(fullArgs);
     }
 
     public void setTimeout(int timeout) {
@@ -287,23 +299,12 @@ public class Fuzzer {
         return count > 1;
     }
 
-    private SeedScheduler createScheduler() throws IOException {
-        AFLSeedGenerator seedGenerator = new AFLSeedGenerator(aflSeedDir);
-        List<Seed> initialSeeds = seedGenerator.generateInitialSeeds();
-
-        if (initialSeeds.isEmpty()) {
-            throw new IOException("No initial seeds found in directory: " + aflSeedDir);
-        }
-
-        return new AFLScheduler(initialSeeds, energySchedulerType);
-    }
-
     private void setupShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             isRunning = false;
             System.out.println("\n接收到终止信号，正在退出...");
             monitor.printFinalStats();
-            cleanup();
+            shutdown();
         }));
     }
 
@@ -425,15 +426,34 @@ public class Fuzzer {
         }
     }
 
-    private void cleanup() {
-        if (shmManager != null) {
-            shmManager.destroySharedMemory();
+    private void shutdown() {
+        this.isRunning = false;
+        if (executorService != null) {
+            executorService.shutdown();
+            try {
+                // 给线程池一定时间来完成当前任务
+                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
 
-        // Clean up any stray files
+        // 清理所有执行器
         for (Executor executor : executors) {
             if (executor instanceof ProcessExecutor) {
                 ((ProcessExecutor) executor).cleanupStrayFiles();
+            }
+        }
+
+        // 清理共享内存
+        if (shmManager != null) {
+            try {
+                shmManager.destroySharedMemory();
+            } catch (Exception e) {
+                System.err.println("清理共享内存时出错: " + e.getMessage());
             }
         }
     }
