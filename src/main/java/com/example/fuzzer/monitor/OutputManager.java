@@ -159,15 +159,16 @@ public class OutputManager {
     }
 
     public Path saveQueueInput(byte[] input, String id, ExecutionResult result, boolean newCoverage) throws IOException {
+        // 只在覆盖率增加时保存文件
+        if (!newCoverage) {
+            return null;
+        }
+
         // 构建文件名：使用执行时间而不是系统时间
         String filename = String.format("id:%016d,exec_time:%d,execs:%d",
                 Long.parseLong(id),
                 result.getExecutionTime(),
                 result.getExecutionCount());
-
-        if (newCoverage) {
-            filename += ",+cov";
-        }
 
         Path inputPath = queueDir.resolve(filename);
         Files.write(inputPath, input, StandardOpenOption.CREATE);
