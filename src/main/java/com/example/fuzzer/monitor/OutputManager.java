@@ -201,15 +201,28 @@ public class OutputManager {
         Files.write(hangPath, input, StandardOpenOption.CREATE);
 
         // 记录到日志
-        String logEntry = String.format("[%s] New hang found: %s (execution time: %d ms)\n",
+        String logEntry = String.format("[%s] New timeout detected: %s (execution time: %dms)%n",
                 LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                 hangName, executionTime);
         appendToLog("hangs.log", logEntry);
 
+        // 更新超时统计信息
+        updateTimeoutStats(executionTime);
+
         return hangPath;
     }
 
-    private void appendToLog(String logFile, String content) throws IOException {
+    private void updateTimeoutStats(long executionTime) throws IOException {
+        Path statsPath = logsDir.resolve("timeout_stats.log");
+        String stats = String.format("[%s] Total timeouts: %d, Latest execution time: %dms%n",
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                uniqueHangCount.get(), executionTime);
+
+        Files.write(statsPath, stats.getBytes(),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    public void appendToLog(String logFile, String content) throws IOException {
         Path logPath = logsDir.resolve(logFile);
         Files.write(logPath, content.getBytes(),
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);

@@ -3,6 +3,9 @@ package com.example.fuzzer.monitor;
 import com.example.fuzzer.execution.ExecutionResult;
 
 import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
@@ -10,8 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * AFL风格的监控器实现，提供类似AFL++的监控和统计功能
  */
-public class AFLMonitor implements Monitor {
-    private static final long UPDATE_INTERVAL = 1000; // 每秒更新一次
+public class AFLMonitor implements Monitor, AutoCloseable {
     private static final String PROGRESS_BAR_CHARS = " ▏▎▍▌▋▊▉█";
     private static final int PROGRESS_BAR_WIDTH = 40;
     private static final long STATUS_UPDATE_INTERVAL = 1000; // 每秒更新一次
@@ -30,6 +32,7 @@ public class AFLMonitor implements Monitor {
     private final AtomicInteger maxCoverageIncrease;  // 新增：最大覆盖率增长
     private final AtomicLong lastCoverageIncrease;  // 新增：上次覆盖率增长时间
     private final ReentrantLock outputLock = new ReentrantLock(); // 新增：输出锁
+    private final ScheduledExecutorService statusUpdater;
     private volatile long lastUpdateTime;
     private volatile double peakExecSpeed;  // 新增：峰值执行速度
     private String targetProgram;
@@ -60,7 +63,39 @@ public class AFLMonitor implements Monitor {
         this.maxCoverageIncrease = new AtomicInteger(0);  // 新增
         this.lastCoverageIncrease = new AtomicLong(startTime);  // 新增
         this.peakExecSpeed = 0.0;  // 新增
+
+        // Initialize status updater
+        this.statusUpdater = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "AFL-Status-Updater");
+            t.setDaemon(true);
+            return t;
+        });
+
+        // Schedule periodic status updates
+        this.statusUpdater.scheduleAtFixedRate(
+                this::updateStatusPeriodically,
+                STATUS_UPDATE_INTERVAL,
+                STATUS_UPDATE_INTERVAL,
+                TimeUnit.MILLISECONDS
+        );
+
         updateCoveredEdges();
+    }
+
+    private void updateStatusPeriodically() {
+        if (outputLock.tryLock()) {
+            try {
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastUpdateTime >= STATUS_UPDATE_INTERVAL) {
+                    printStatus();
+                    lastUpdateTime = currentTime;
+                }
+            } catch (Exception e) {
+                System.err.println("Error updating status: " + e.getMessage());
+            } finally {
+                outputLock.unlock();
+            }
+        }
     }
 
     public void setTargetInfo(String targetProgram, String[] programArgs) {
@@ -87,13 +122,33 @@ public class AFLMonitor implements Monitor {
         result.setExecutionCount(execCount);
         boolean newCoverage = false;
 
-        // 记录边覆盖
-        byte[] coverageData = result.getCoverageData();
-        if (coverageData == null) {
-            return;
-        }
-
         try {
+            // 处理异常情况优先
+            if (result.isTimeout()) {
+                // 保存超时输入
+                long executionTime = result.getExecutionTime();
+                outputManager.saveHangInput(result.getInput(), executionTime);
+                hangCount.incrementAndGet();
+                lastHangTime = System.currentTimeMillis();
+
+                // Update execution statistics
+                totalExecutionTime.addAndGet(executionTime);
+
+                // 更新统计信息
+                try {
+                    updateStats();
+                } catch (IOException e) {
+                    System.err.println("更新统计信息失败: " + e.getMessage());
+                }
+                return; // Skip coverage processing for timeout cases
+            }
+
+            // 记录边覆盖
+            byte[] coverageData = result.getCoverageData();
+            if (coverageData == null) {
+                return;
+            }
+
             coverageLock.lock();
             try {
                 for (int i = 0; i < mapSize; i++) {
@@ -110,7 +165,6 @@ public class AFLMonitor implements Monitor {
                 if (newCoverage) {
                     updateCoveredEdges();
                     lastFindTime = System.currentTimeMillis();
-                    // 只在发现新覆盖时更新统计信息
                     updateStats();
                 }
 
@@ -120,35 +174,18 @@ public class AFLMonitor implements Monitor {
                 coverageLock.unlock();
             }
 
-            // 处理异常情况
-            if (result.isTimeout()) {
-                // 保存超时输入
-                outputManager.saveHangInput(result.getInput(), result.getExecutionTime());
-                hangCount.incrementAndGet();
-                lastHangTime = System.currentTimeMillis();
-            } else if (result.getExitCode() != 0) {
+            if (result.getExitCode() != 0) {
                 // 保存crash输入
                 outputManager.saveCrashInput(result.getInput(), result.getExitCode());
                 crashCount.incrementAndGet();
                 lastCrashTime = System.currentTimeMillis();
             }
 
+            // Update execution statistics
+            totalExecutionTime.addAndGet(result.getExecutionTime());
+
         } catch (IOException e) {
             System.err.println("Error writing output: " + e.getMessage());
-        }
-
-        // 定期更新状态（降低更新频率）
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastUpdateTime >= STATUS_UPDATE_INTERVAL) {
-            // 使用tryLock避免阻塞
-            if (outputLock.tryLock()) {
-                try {
-                    printStatus();
-                    lastUpdateTime = currentTime;
-                } finally {
-                    outputLock.unlock();
-                }
-            }
         }
     }
 
@@ -197,14 +234,6 @@ public class AFLMonitor implements Monitor {
             return;
         }
         recordResult(result);
-    }
-
-    public void printStats() {
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastUpdateTime >= STATUS_UPDATE_INTERVAL) {
-            printStatus();
-            lastUpdateTime = currentTime;
-        }
     }
 
     private void updateCoveredEdges() {
@@ -391,5 +420,19 @@ public class AFLMonitor implements Monitor {
 
     public OutputManager getOutputManager() {
         return outputManager;
+    }
+
+    @Override
+    public void close() {
+        if (statusUpdater != null) {
+            statusUpdater.shutdown();
+            try {
+                if (!statusUpdater.awaitTermination(1, TimeUnit.SECONDS)) {
+                    statusUpdater.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                statusUpdater.shutdownNow();
+            }
+        }
     }
 }

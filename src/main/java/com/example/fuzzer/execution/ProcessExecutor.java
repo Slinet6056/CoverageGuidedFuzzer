@@ -6,7 +6,7 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class ProcessExecutor implements Executor {
     private final String targetProgramPath;
@@ -98,14 +98,11 @@ public class ProcessExecutor implements Executor {
         }
         result.setInput(combinedInput);
 
-        // 构建命令行参数列表
         List<String> command = new ArrayList<>();
         command.add(targetProgramPath);
 
-        // 添加用户配置的命令行参数，替换@@为输入文件路径
         boolean hasInputFileArg = false;
         int fileIndex = 0;
-
         for (String arg : config.getCommandArgs()) {
             if (arg.equals("@@")) {
                 if (fileIndex < inputFiles.size()) {
@@ -122,7 +119,6 @@ public class ProcessExecutor implements Executor {
         Map<String, String> env = pb.environment();
         env.put("__AFL_SHM_ID", String.valueOf(shmManager.getShmId()));
 
-        // 配置输出重定向
         if (config.isRedirectOutput()) {
             File outputDir = new File(config.getOutputDir());
             if (!outputDir.exists()) {
@@ -133,51 +129,68 @@ public class ProcessExecutor implements Executor {
         int retryCount = 0;
         while (retryCount <= config.getMaxRetries()) {
             Process process = pb.start();
+            Future<Boolean> timeoutFuture = null;
+            ExecutorService timeoutExecutor = null;
+            long startTime = System.currentTimeMillis();
 
-            // 如果没有通过命令行参数指定输入文件，则通过标准输入传入第一个输入
-            if (!hasInputFileArg && inputs.length > 0) {
-                try (OutputStream stdin = process.getOutputStream()) {
-                    stdin.write(inputs[0]);
-                    stdin.flush();
-                }
-            }
-
-            boolean finished = process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
-
-            if (!finished) {
-                process.destroyForcibly();
-                result.setTimeout(true);
-                result.setExitCode(124);
-                result.setErrorMessage("执行超时");
-                retryCount++;
-                continue;
-            }
-
-            result.setExitCode(process.exitValue());
-
-            if (result.getExitCode() != 0) {
-                // 获取程序的错误输出
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getErrorStream()))) {
-                    String errorOutput = reader.readLine();
-                    if (errorOutput != null) {
-                        result.setErrorMessage(errorOutput);
+            try {
+                // 如果没有通过命令行参数指定输入文件，则通过标准输入传入第一个输入
+                if (!hasInputFileArg && inputs.length > 0) {
+                    try (OutputStream stdin = process.getOutputStream()) {
+                        stdin.write(inputs[0]);
+                        stdin.flush();
                     }
-                } catch (IOException e) {
-                    // 忽略读取错误
                 }
-            }
 
-            // 获取覆盖率数据
-            byte[] coverageData = shmManager.readSharedMemory();
-            if (coverageData == null) {
-                result.setErrorMessage("无法读取覆盖率数据");
-                retryCount++;
-                continue;
-            }
+                // 创建异步超时检查
+                timeoutExecutor = Executors.newSingleThreadExecutor();
+                timeoutFuture = timeoutExecutor.submit(() -> {
+                    try {
+                        return process.waitFor(config.getTimeoutSeconds(), TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        return false;
+                    }
+                });
 
-            result.setCoverageData(coverageData);
-            return result;
+                try {
+                    boolean finished = timeoutFuture.get();
+                    long endTime = System.currentTimeMillis();
+                    result.setExecutionTime(endTime - startTime);
+
+                    if (!finished) {
+                        handleTimeout(process, result);
+                        return result; // Return immediately after timeout
+                    }
+
+                    result.setExitCode(process.exitValue());
+                    handleProcessOutput(process, result);
+
+                    // 获取覆盖率数据
+                    byte[] coverageData = shmManager.readSharedMemory();
+                    if (coverageData == null) {
+                        result.setErrorMessage("无法读取覆盖率数据");
+                        retryCount++;
+                        continue;
+                    }
+
+                    result.setCoverageData(coverageData);
+                    return result;
+
+                } catch (ExecutionException e) {
+                    result.setErrorMessage("执行异常: " + e.getMessage());
+                    result.setExitCode(-1);
+                    break;
+                }
+
+            } finally {
+                if (timeoutFuture != null) {
+                    timeoutFuture.cancel(true);
+                }
+                if (timeoutExecutor != null) {
+                    timeoutExecutor.shutdownNow();
+                }
+                cleanupProcess(process);
+            }
         }
 
         if (retryCount > config.getMaxRetries()) {
@@ -185,6 +198,43 @@ public class ProcessExecutor implements Executor {
         }
 
         return result;
+    }
+
+    private void handleTimeout(Process process, ExecutionResult result) {
+        result.setTimeout(true);
+        result.setExitCode(124);
+        result.setErrorMessage("执行超时（" + config.getTimeoutSeconds() + "秒）");
+
+        // Set execution time to timeout duration
+        result.setExecutionTime(config.getTimeoutSeconds() * 1000L);
+    }
+
+    private void handleProcessOutput(Process process, ExecutionResult result) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getErrorStream()))) {
+            String errorOutput = reader.readLine();
+            if (errorOutput != null) {
+                result.setErrorMessage(errorOutput);
+            }
+        } catch (IOException e) {
+            // 忽略读取错误
+        }
+    }
+
+    private void cleanupProcess(Process process) {
+        if (process.isAlive()) {
+            process.destroy();
+            try {
+                if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
+                    process.destroyForcibly();
+                    if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
+                        System.err.println("警告：进程无法被终止 (PID: " + process.pid() + ")");
+                    }
+                }
+            } catch (InterruptedException e) {
+                process.destroyForcibly();
+            }
+        }
     }
 
     private File writeInputToFile(byte[] input) {

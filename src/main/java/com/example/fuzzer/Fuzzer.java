@@ -57,8 +57,9 @@ public class Fuzzer {
     private List<Executor> executors = new ArrayList<>();
     private volatile boolean isRunning;
     private volatile long endTimeMillis;  // 结束时间（毫秒）
-    private String[] programArgs = new String[0];  // 新增
-    private String outputDir;  // 新增
+    private String[] programArgs = new String[0];
+    private String outputDir;
+    private int timeout = 1;
 
     public Fuzzer(String targetProgramPath, String aflSeedDir) throws IOException {
         this(targetProgramPath, aflSeedDir, DEFAULT_MUTATOR_TYPE, DEFAULT_ENERGY_SCHEDULER_TYPE, DEFAULT_SEED_SORTER_TYPE);
@@ -96,7 +97,7 @@ public class Fuzzer {
 
         // 初始化执行器
         ExecutorConfig config = new ExecutorConfig.Builder()
-                .timeout(5)
+                .timeout(timeout)
                 .build();
         this.executor = new ProcessExecutor(targetProgramPath, shmManager, config);
 
@@ -141,6 +142,13 @@ public class Fuzzer {
         options.addOption(Option.builder("t")
                 .longOpt("time")
                 .desc("运行时长(分钟)")
+                .hasArg()
+                .type(Number.class)
+                .build());
+
+        options.addOption(Option.builder("to")
+                .longOpt("timeout")
+                .desc("单个测试用例的超时时间(秒)，默认为1秒")
                 .hasArg()
                 .type(Number.class)
                 .build());
@@ -206,11 +214,17 @@ public class Fuzzer {
             String[] programArgs = targetCmdline.split("\\s+");  // 按空格分割命令行
 
             Fuzzer fuzzer = new Fuzzer(targetProgram, seedDir, mutatorType, energyType, sorterType, threads);
-            fuzzer.setProgramArgs(programArgs);  // 新增
+            fuzzer.setProgramArgs(programArgs);
 
             if (cmd.hasOption("time")) {
                 int minutes = ((Number) cmd.getParsedOptionValue("time")).intValue();
                 fuzzer.setDurationMinutes(minutes);
+            }
+
+            // 设置超时时间
+            if (cmd.hasOption("timeout")) {
+                int timeout = ((Number) cmd.getParsedOptionValue("timeout")).intValue();
+                fuzzer.setTimeout(timeout);
             }
 
             fuzzer.run();
@@ -246,19 +260,22 @@ public class Fuzzer {
         ((AFLMonitor) monitor).getOutputManager().writeCmdline(fullArgs);
     }
 
+    public void setTimeout(int timeout) {
+        this.timeout = timeout;
+    }
+
     private Executor createExecutor() {
         ExecutorConfig config = new ExecutorConfig.Builder()
-                .timeout(5)
+                .timeout(timeout)
                 .maxRetries(3)
                 .redirectOutput(true)
                 .outputDir(outputDir)
                 .commandArgs(programArgs)
-                .multipleInputs(hasMultipleInputs())  // 新增：根据命令行参数判断是否需要多输入
+                .multipleInputs(hasMultipleInputs())
                 .build();
         return new ProcessExecutor(targetProgramPath, shmManager, config);
     }
 
-    // 新增：判断是否需要多输入模式
     private boolean hasMultipleInputs() {
         if (programArgs == null) return false;
         int count = 0;
@@ -384,10 +401,6 @@ public class Fuzzer {
                 if (totalExecutions.get() % 1000 == 0 && threadExecutor instanceof ProcessExecutor) {
                     ((ProcessExecutor) threadExecutor).cleanupStrayFiles();
                 }
-
-                if (totalExecutions.get() % 100 == 0) {
-                    monitor.printStats();
-                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -471,6 +484,6 @@ public class Fuzzer {
         System.out.println("- 共享内存大小: " + MAP_SIZE + " bytes");
         System.out.println("- 目标程序路径: " + targetProgramPath);
         System.out.println("- 使用变异器类型: " + mutatorType);
-        System.out.println("- 输出目录: " + outputDir);  // 新增
+        System.out.println("- 输出目录: " + outputDir);
     }
 }
