@@ -9,6 +9,9 @@ public class SeedScore {
     private int newBranches;
     private float score;
     private int cycles;  // 执行次数
+    private int consecutiveLowPerformance = 0;  // 连续低性能次数
+    private long lastNewBranchTime = System.currentTimeMillis();  // 上次发现新分支的时间
+    private boolean isInitialSeed = false;  // 是否为初始种子
 
     public SeedScore(byte[] data) {
         this.data = data;
@@ -56,5 +59,33 @@ public class SeedScore {
 
     public void resetCycles() {
         this.cycles = 0;
+    }
+
+    public void incrementLowPerformance() {
+        this.consecutiveLowPerformance++;
+    }
+
+    public void resetLowPerformance() {
+        this.consecutiveLowPerformance = 0;
+    }
+
+    public int getConsecutiveLowPerformance() {
+        return consecutiveLowPerformance;
+    }
+
+    public long getLastNewBranchTime() {
+        return lastNewBranchTime;
+    }
+
+    public void updateLastNewBranchTime() {
+        this.lastNewBranchTime = System.currentTimeMillis();
+    }
+
+    public void markAsInitialSeed() {
+        this.isInitialSeed = true;
+    }
+
+    public boolean isInitialSeed() {
+        return isInitialSeed;
     }
 }

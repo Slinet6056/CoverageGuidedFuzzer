@@ -16,15 +16,15 @@ public class AFLScheduler implements SeedScheduler {
     private final EnergyScheduler energyScheduler;
 
     public AFLScheduler(List<Seed> initialSeeds) {
-        this(initialSeeds, EnergyScheduler.Type.COVERAGE_BASED, SeedSorter.Type.HEURISTIC);
+        this(initialSeeds, EnergyScheduler.Type.COVERAGE_BASED, SeedSorterFactory.createSeedSorter(SeedSorter.Type.HEURISTIC));
     }
 
     public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType) {
-        this(initialSeeds, energySchedulerType, SeedSorter.Type.HEURISTIC);
+        this(initialSeeds, energySchedulerType, SeedSorterFactory.createSeedSorter(SeedSorter.Type.HEURISTIC));
     }
 
-    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter.Type sorterType) {
-        this.seedSorter = SeedSorterFactory.createSeedSorter(sorterType);
+    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter seedSorter) {
+        this.seedSorter = seedSorter;
         this.energyScheduler = EnergySchedulerFactory.createEnergyScheduler(energySchedulerType);
 
         if (initialSeeds != null) {

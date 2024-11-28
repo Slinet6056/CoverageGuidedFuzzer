@@ -1,6 +1,7 @@
 package com.example.fuzzer.monitor;
 
 import com.example.fuzzer.execution.ExecutionResult;
+import com.example.fuzzer.schedule.sort.SeedSorter;
 
 import java.io.IOException;
 import java.util.concurrent.Executors;
@@ -42,8 +43,9 @@ public class AFLMonitor implements Monitor, AutoCloseable {
     private final AtomicInteger uniquePaths;  // 新增：统计独特路径数量
     private final ReentrantLock coverageLock;
     private final OutputManager outputManager;
+    private final SeedSorter seedSorter;  // 新增：种子排序器引用
     private final AtomicInteger crashCount;
-    private final AtomicInteger queueCount;
+    private final AtomicInteger newCoverageCount;
     private final AtomicInteger hangCount;  // 新增：超时计数
     private final AtomicLong totalExecutionTime;  // 新增：总执行时间
     private final AtomicInteger maxCoverageIncrease;  // 新增：最大覆盖率增长
@@ -59,9 +61,10 @@ public class AFLMonitor implements Monitor, AutoCloseable {
     private volatile long lastCrashTime;
     private volatile long lastHangTime;
 
-    public AFLMonitor(int mapSize, String outputPath) throws IOException {
+    public AFLMonitor(int mapSize, String outputPath, SeedSorter seedSorter) throws IOException {
         this.mapSize = mapSize;
         this.outputPath = outputPath;
+        this.seedSorter = seedSorter;  // 新增：初始化种子排序器
         this.globalCoverage = new byte[mapSize];
         this.startTime = System.currentTimeMillis();
         this.lastUpdateTime = startTime;
@@ -75,7 +78,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         this.coverageLock = new ReentrantLock();
         this.outputManager = new OutputManager(outputPath);
         this.crashCount = new AtomicInteger(0);
-        this.queueCount = new AtomicInteger(0);
+        this.newCoverageCount = new AtomicInteger(0);
         this.hangCount = new AtomicInteger(0);  // 新增
         this.totalExecutionTime = new AtomicLong(0);  // 新增
         this.maxCoverageIncrease = new AtomicInteger(0);  // 新增
@@ -194,7 +197,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
 
                 if (newCoverage) {
                     // 只有新覆盖才保存到队列
-                    String id = String.format("%06d", queueCount.incrementAndGet());
+                    String id = String.format("%06d", newCoverageCount.incrementAndGet());
                     outputManager.saveQueueInput(result.getInput(), id, result, true);
                     updateCoveredEdges();
                     updateStats();
@@ -237,7 +240,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
                 startTime,
                 totalExecs,
                 execPerSec,
-                queueCount.get(),
+                newCoverageCount.get(),
                 crashCount.get(),
                 hangCount.get(),
                 coveragePercent,
@@ -251,7 +254,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         String plotLine = String.format("%d,%d,%d,%d,%d,%.2f\n",
                 runTime,
                 totalExecs,
-                queueCount.get(),
+                newCoverageCount.get(),
                 crashCount.get(),
                 hangCount.get(),
                 coveragePercent);
@@ -260,7 +263,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         // 生成可读的覆盖率报告
         try {
             outputManager.writeCoverageReport(globalCoverage, totalExecutions, startTime,
-                    peakExecSpeed, queueCount.get(), crashCount.get(), hangCount.get());
+                    peakExecSpeed, newCoverageCount.get(), crashCount.get(), hangCount.get());
         } catch (IOException e) {
             System.err.println("生成覆盖率报告失败: " + e.getMessage());
         }
@@ -334,8 +337,8 @@ public class AFLMonitor implements Monitor, AutoCloseable {
                     (int) execPerSec, (int) peakExecSpeed);
 
             // 用例数量和路径数量
-            System.out.printf("\033[1mcases:\033[0m \033[32m%d\033[0m (\033[36mpaths:\033[0m \033[32m%d\033[0m) | ",
-                    queueCount.get(), uniquePaths.get());
+            System.out.printf("\033[1mcases:\033[0m \033[32m%d\033[0m (\033[36mpool:\033[0m \033[32m%d\033[0m, \033[36mpaths:\033[0m \033[32m%d\033[0m) | ",
+                    newCoverageCount.get(), seedSorter.size(), uniquePaths.get());
 
             // crash和hang数量
             int crashes = outputManager.getUniqueCrashCount();
@@ -402,7 +405,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
                     coveragePercent, coveredEdges.get(), totalEdges);
 
             // 测试用例统计
-            System.out.printf("\033[1m有效测试用例:\033[0m %d\n", queueCount.get());
+            System.out.printf("\033[1m有效测试用例:\033[0m %d\n", newCoverageCount.get());
 
             // crash统计
             int crashes = outputManager.getUniqueCrashCount();
@@ -433,7 +436,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
             // 生成覆盖率报告
             try {
                 outputManager.writeCoverageReport(globalCoverage, totalExecutions, startTime,
-                        peakExecSpeed, queueCount.get(), crashCount.get(), hangCount.get());
+                        peakExecSpeed, newCoverageCount.get(), crashCount.get(), hangCount.get());
             } catch (IOException e) {
                 System.err.println("生成覆盖率报告失败: " + e.getMessage());
             }

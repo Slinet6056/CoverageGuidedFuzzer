@@ -40,6 +40,11 @@ public interface SeedSorter {
     void clear();
 
     /**
+     * 标记开始模糊测试
+     */
+    public void startFuzzing();
+
+    /**
      * 获取排序器类型
      *
      * @return 排序器类型

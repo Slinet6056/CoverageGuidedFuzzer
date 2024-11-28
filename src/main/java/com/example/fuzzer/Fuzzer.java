@@ -89,10 +89,6 @@ public class Fuzzer {
         String outputPath = "fuzz_output/" + System.currentTimeMillis();
         this.outputDir = outputPath;
 
-        // 初始化监控器
-        this.monitor = new AFLMonitor(MAP_SIZE, outputPath);
-        this.monitor.setTargetInfo(targetProgramPath, programArgs);
-
         // 初始化共享内存管理器
         this.shmManager = new SharedMemoryManager(MAP_SIZE);
 
@@ -105,12 +101,16 @@ public class Fuzzer {
         // 初始化种子排序器
         this.seedSorter = SeedSorterFactory.createSeedSorter(seedSorterType);
 
+        // 初始化监控器
+        this.monitor = new AFLMonitor(MAP_SIZE, outputPath, seedSorter);
+        this.monitor.setTargetInfo(targetProgramPath, programArgs);
+
         // 初始化变异器
         this.mutator = MutatorFactory.createMutator(mutatorType);
 
         // 初始化调度器
         List<Seed> initialSeeds = new ArrayList<>();  // 初始为空，稍后通过loadSeeds添加
-        this.scheduler = new AFLScheduler(initialSeeds, energySchedulerType);
+        this.scheduler = new AFLScheduler(initialSeeds, energySchedulerType, seedSorter);
 
         // 加载种子
         loadSeeds();
@@ -311,6 +311,9 @@ public class Fuzzer {
     public void run() {
         printInitialInfo();
         System.out.println("使用 " + numThreads + " 个线程进行模糊测试");
+
+        // 标记开始模糊测试
+        seedSorter.startFuzzing();
 
         // 启动多个工作线程
         for (int i = 0; i < numThreads; i++) {
