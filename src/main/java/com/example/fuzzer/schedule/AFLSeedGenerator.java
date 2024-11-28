@@ -47,8 +47,10 @@ public class AFLSeedGenerator {
     }
 
     private int calculateInitialEnergy(int seedSize) {
-        // 根据种子大小计算初始能量值
-        // 这里使用一个简单的算法，可以根据需要调整
-        return Math.min(10, Math.max(10, seedSize / 2));
+        // 使用对数缩放计算初始能量值
+        // 1. 基础能量值 = ln(seedSize + 1) * 10
+        // 2. 确保能量值在合理范围内：最小5，最大100
+        int baseEnergy = (int) (Math.log(seedSize + 1) * 10);
+        return Math.min(100, Math.max(5, baseEnergy));
     }
 }
