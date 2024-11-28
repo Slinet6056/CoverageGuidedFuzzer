@@ -7,6 +7,8 @@ public class MutatorFactory {
                 return new AFLMutator();
             case RANDOM:
                 return new SimpleMutator();
+            case CXXFILT:
+                return new CxxfiltMutator();
             default:
                 throw new IllegalArgumentException("未知的变异器类型: " + type);
         }

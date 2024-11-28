@@ -12,7 +12,8 @@ public interface Mutator {
 
     enum MutatorType {
         AFL,    // AFL风格的变异器
-        RANDOM  // 随机变异器
+        RANDOM, // 随机变异器
+        CXXFILT // C++符号名称专用变异器
     }
 
     enum MutationStrategy {

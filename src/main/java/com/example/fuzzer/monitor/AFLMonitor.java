@@ -17,12 +17,29 @@ public class AFLMonitor implements Monitor, AutoCloseable {
     private static final String PROGRESS_BAR_CHARS = " ▏▎▍▌▋▊▉█";
     private static final int PROGRESS_BAR_WIDTH = 40;
     private static final long STATUS_UPDATE_INTERVAL = 1000; // 每秒更新一次
+    private static final byte[] COUNT_CLASS_LOOKUP = new byte[256];
+
+    static {
+        // Initialize count class lookup as per AFL++
+        for (int i = 0; i < 256; i++) {
+            if (i == 0) COUNT_CLASS_LOOKUP[i] = 0;
+            else if (i == 1) COUNT_CLASS_LOOKUP[i] = 1;
+            else if (i < 4) COUNT_CLASS_LOOKUP[i] = 2;
+            else if (i < 8) COUNT_CLASS_LOOKUP[i] = 3;
+            else if (i < 16) COUNT_CLASS_LOOKUP[i] = 4;
+            else if (i < 32) COUNT_CLASS_LOOKUP[i] = 5;
+            else if (i < 128) COUNT_CLASS_LOOKUP[i] = 6;
+            else COUNT_CLASS_LOOKUP[i] = 7;
+        }
+    }
+
     private final byte[] globalCoverage;
     private final int mapSize;
     private final long startTime;
     private final AtomicLong totalExecutions;
     private final int totalEdges;
     private final AtomicInteger coveredEdges;
+    private final AtomicInteger uniquePaths;  // 新增：统计独特路径数量
     private final ReentrantLock coverageLock;
     private final OutputManager outputManager;
     private final AtomicInteger crashCount;
@@ -54,6 +71,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         this.totalExecutions = new AtomicLong(0);
         this.totalEdges = mapSize;
         this.coveredEdges = new AtomicInteger(0);
+        this.uniquePaths = new AtomicInteger(0);  // 新增
         this.coverageLock = new ReentrantLock();
         this.outputManager = new OutputManager(outputPath);
         this.crashCount = new AtomicInteger(0);
@@ -80,6 +98,10 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         );
 
         updateCoveredEdges();
+    }
+
+    private byte classifyCount(byte count) {
+        return COUNT_CLASS_LOOKUP[count & 0xFF];
     }
 
     private void updateStatusPeriodically() {
@@ -121,6 +143,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         long execCount = totalExecutions.incrementAndGet();
         result.setExecutionCount(execCount);
         boolean newCoverage = false;
+        boolean newPath = false;
 
         try {
             // 处理异常情况优先
@@ -152,20 +175,34 @@ public class AFLMonitor implements Monitor, AutoCloseable {
             coverageLock.lock();
             try {
                 for (int i = 0; i < mapSize; i++) {
-                    if (globalCoverage[i] == 0 && coverageData[i] != 0) {
+                    byte newClass = classifyCount(coverageData[i]);
+                    byte oldClass = classifyCount(globalCoverage[i]);
+
+                    if (newClass != oldClass) {
+                        // 如果执行次数的分类不同，说明找到了新的路径
                         globalCoverage[i] = coverageData[i];
-                        newCoverage = true;
+                        newPath = true;
+                        if (oldClass == 0) {
+                            // 如果是从未执行变成执行，这是新的覆盖
+                            newCoverage = true;
+                        }
+                    } else if (coverageData[i] > globalCoverage[i]) {
+                        // 更新最大执行次数
+                        globalCoverage[i] = coverageData[i];
                     }
                 }
 
-                // 保存所有输入到队列
-                String id = String.format("%06d", queueCount.incrementAndGet());
-                outputManager.saveQueueInput(result.getInput(), id, result, newCoverage);
-
                 if (newCoverage) {
+                    // 只有新覆盖才保存到队列
+                    String id = String.format("%06d", queueCount.incrementAndGet());
+                    outputManager.saveQueueInput(result.getInput(), id, result, true);
                     updateCoveredEdges();
-                    lastFindTime = System.currentTimeMillis();
                     updateStats();
+                }
+
+                if (newPath) {
+                    uniquePaths.incrementAndGet();
+                    lastFindTime = System.currentTimeMillis();
                 }
 
                 // 更新bitmap文件
@@ -296,8 +333,9 @@ public class AFLMonitor implements Monitor, AutoCloseable {
             System.out.printf("\033[33mexec/s: %,d\033[0m (peak: \033[33m%,d\033[0m) | ",
                     (int) execPerSec, (int) peakExecSpeed);
 
-            // 用例数量
-            System.out.printf("\033[1mcases:\033[0m \033[32m%d\033[0m | ", queueCount.get());
+            // 用例数量和路径数量
+            System.out.printf("\033[1mcases:\033[0m \033[32m%d\033[0m (\033[36mpaths:\033[0m \033[32m%d\033[0m) | ",
+                    queueCount.get(), uniquePaths.get());
 
             // crash和hang数量
             int crashes = outputManager.getUniqueCrashCount();
@@ -313,7 +351,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
                 System.out.printf("\033[1mhangs:\033[0m %d\n", hangs);
             }
 
-            // 覆盖率进度条（使用彩色输出）
+            // 覆盖率进度条
             System.out.printf("\033[1mCoverage:\033[0m \033[36m%s\033[0m \033[1m%.1f%%\033[0m",
                     getProgressBar(coveragePercent),
                     coveragePercent);
@@ -325,7 +363,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
             // 上次覆盖率增长时间
             long timeSinceLastCoverage = (currentTime - lastCoverageIncrease.get()) / 1000;
             if (timeSinceLastCoverage > 300) {  // 5分钟没有新覆盖
-                System.out.printf(" | \033[31m%02d:%02d:%02d\033[0m since new coverage",
+                System.out.printf(" | \033[31m%02d:%02d:%02d\033[0m since new path",
                         timeSinceLastCoverage / 3600,
                         (timeSinceLastCoverage % 3600) / 60,
                         timeSinceLastCoverage % 60);
@@ -408,7 +446,14 @@ public class AFLMonitor implements Monitor, AutoCloseable {
         coverageLock.lock();
         try {
             for (int i = 0; i < mapSize; i++) {
-                if (globalCoverage[i] == 0 && coverageData[i] != 0) {
+                byte newClass = classifyCount(coverageData[i]);
+                byte oldClass = classifyCount(globalCoverage[i]);
+
+                if (newClass != oldClass) {
+                    // 如果执行次数的分类不同，说明找到了新的路径
+                    return true;
+                } else if (coverageData[i] > globalCoverage[i]) {
+                    // 更新最大执行次数
                     return true;
                 }
             }

@@ -500,12 +500,17 @@ public class AFLMutator implements Mutator {
         // 随机选择一个魔数
         byte[] magic = magicNumbers[random.nextInt(magicNumbers.length)];
 
+        // 确保输入数组有足够空间容纳魔数
+        if (input.length < magic.length) {
+            return;
+        }
+
         // 随机选择插入位置，优先考虑文件开头和文件中部
         int pos;
         if (random.nextInt(4) == 0) { // 25%概率插在开头
             pos = 0;
         } else if (random.nextInt(3) == 0) { // 33%概率插在中间
-            pos = input.length / 2;
+            pos = Math.max(0, Math.min(input.length - magic.length, input.length / 2));
         } else { // 其他情况随机位置
             pos = random.nextInt(input.length - magic.length + 1);
         }
