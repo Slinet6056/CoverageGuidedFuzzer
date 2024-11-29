@@ -39,3 +39,4 @@ build/
 
 crash*
 fuzz_output/
+AFLplusplus/
