@@ -4,7 +4,7 @@ public class MutatorFactory {
     public static Mutator createMutator(Mutator.MutatorType type) {
         switch (type) {
             case AFL:
-                return new AFLMutator();
+                return new FuzzingMutator();
             case RANDOM:
                 return new SimpleMutator();
             case CXXFILT:

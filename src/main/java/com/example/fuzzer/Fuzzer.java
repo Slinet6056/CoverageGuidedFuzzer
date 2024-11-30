@@ -5,11 +5,11 @@ import com.example.fuzzer.execution.Executor;
 import com.example.fuzzer.execution.ExecutorConfig;
 import com.example.fuzzer.execution.ProcessExecutor;
 import com.example.fuzzer.logging.FuzzingLogger;
-import com.example.fuzzer.monitor.AFLMonitor;
+import com.example.fuzzer.monitor.FuzzingMonitor;
 import com.example.fuzzer.mutation.Mutator;
 import com.example.fuzzer.mutation.MutatorFactory;
-import com.example.fuzzer.schedule.AFLSeedGenerator;
-import com.example.fuzzer.schedule.core.AFLScheduler;
+import com.example.fuzzer.schedule.SeedGenerator;
+import com.example.fuzzer.schedule.core.FuzzingScheduler;
 import com.example.fuzzer.schedule.core.SeedScheduler;
 import com.example.fuzzer.schedule.energy.EnergyScheduler;
 import com.example.fuzzer.schedule.model.Seed;
@@ -46,7 +46,7 @@ public class Fuzzer {
     private final Mutator.MutatorType mutatorType;
     private final EnergyScheduler.Type energySchedulerType;
     private final SeedSorter.Type seedSorterType;
-    private final AFLMonitor monitor;
+    private final FuzzingMonitor monitor;
     private final SharedMemoryManager shmManager;
     private final Executor executor;
     private final SeedScheduler scheduler;
@@ -98,7 +98,7 @@ public class Fuzzer {
         this.seedSorter = SeedSorterFactory.createSeedSorter(seedSorterType);
 
         // 初始化监控器
-        this.monitor = new AFLMonitor(MAP_SIZE, outputPath, seedSorter);
+        this.monitor = new FuzzingMonitor(MAP_SIZE, outputPath, seedSorter);
         this.monitor.setTargetInfo(targetProgramPath, programArgs);
 
         // 初始化执行器
@@ -112,7 +112,7 @@ public class Fuzzer {
 
         // 初始化调度器
         List<Seed> initialSeeds = new ArrayList<>();  // 初始为空，稍后通过loadSeeds添加
-        this.scheduler = new AFLScheduler(initialSeeds, energySchedulerType, seedSorter);
+        this.scheduler = new FuzzingScheduler(initialSeeds, energySchedulerType, seedSorter);
 
         // 获取日志记录器
         this.logger = FuzzingLogger.getInstance();
@@ -520,7 +520,7 @@ public class Fuzzer {
     }
 
     private void loadSeeds() throws IOException {
-        AFLSeedGenerator seedGenerator = new AFLSeedGenerator(aflSeedDir);
+        SeedGenerator seedGenerator = new SeedGenerator(aflSeedDir);
         List<Seed> initialSeeds = seedGenerator.generateInitialSeeds();
 
         if (initialSeeds.isEmpty()) {

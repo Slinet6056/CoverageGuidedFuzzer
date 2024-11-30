@@ -15,10 +15,10 @@ import java.util.stream.Collectors;
 // - 考虑种子文件的复杂度
 // - 添加种子最小化功能
 // - 实现种子去重机制
-public class AFLSeedGenerator {
+public class SeedGenerator {
     private String aflInputDir;
 
-    public AFLSeedGenerator(String aflInputDir) {
+    public SeedGenerator(String aflInputDir) {
         this.aflInputDir = aflInputDir;
     }
 

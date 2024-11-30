@@ -11,19 +11,19 @@ import java.util.List;
 /**
  * AFL风格的调度器，组合了种子排序器和能量调度器
  */
-public class AFLScheduler implements SeedScheduler {
+public class FuzzingScheduler implements SeedScheduler {
     private final SeedSorter seedSorter;
     private final EnergyScheduler energyScheduler;
 
-    public AFLScheduler(List<Seed> initialSeeds) {
+    public FuzzingScheduler(List<Seed> initialSeeds) {
         this(initialSeeds, EnergyScheduler.Type.COVERAGE_BASED, SeedSorterFactory.createSeedSorter(SeedSorter.Type.HEURISTIC));
     }
 
-    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType) {
+    public FuzzingScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType) {
         this(initialSeeds, energySchedulerType, SeedSorterFactory.createSeedSorter(SeedSorter.Type.HEURISTIC));
     }
 
-    public AFLScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter seedSorter) {
+    public FuzzingScheduler(List<Seed> initialSeeds, EnergyScheduler.Type energySchedulerType, SeedSorter seedSorter) {
         this.seedSorter = seedSorter;
         this.energyScheduler = EnergySchedulerFactory.createEnergyScheduler(energySchedulerType);
 

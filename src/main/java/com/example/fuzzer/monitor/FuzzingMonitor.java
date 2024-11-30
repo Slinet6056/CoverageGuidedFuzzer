@@ -14,7 +14,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * AFL风格的监控器实现，提供类似AFL++的监控和统计功能
  */
-public class AFLMonitor implements Monitor, AutoCloseable {
+public class FuzzingMonitor implements Monitor, AutoCloseable {
     private static final String PROGRESS_BAR_CHARS = " ▏▎▍▌▋▊▉█";
     private static final int PROGRESS_BAR_WIDTH = 40;
     private static final long STATUS_UPDATE_INTERVAL = 1000; // 每秒更新一次
@@ -61,7 +61,7 @@ public class AFLMonitor implements Monitor, AutoCloseable {
     private volatile long lastCrashTime;
     private volatile long lastHangTime;
 
-    public AFLMonitor(int mapSize, String outputPath, SeedSorter seedSorter) throws IOException {
+    public FuzzingMonitor(int mapSize, String outputPath, SeedSorter seedSorter) throws IOException {
         this.mapSize = mapSize;
         this.outputPath = outputPath;
         this.seedSorter = seedSorter;  // 新增：初始化种子排序器

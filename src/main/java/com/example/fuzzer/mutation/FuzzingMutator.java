@@ -2,7 +2,7 @@ package com.example.fuzzer.mutation;
 
 import java.util.Random;
 
-public class AFLMutator implements Mutator {
+public class FuzzingMutator implements Mutator {
     // 预定义的有趣值
     private static final byte[] INTERESTING_8 = {
             Byte.MIN_VALUE,           // -128
