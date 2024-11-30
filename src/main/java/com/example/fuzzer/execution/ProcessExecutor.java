@@ -82,6 +82,23 @@ public class ProcessExecutor implements Executor {
         } catch (ExecutorException e) {
             // 执行器的错误，直接抛出
             throw e;
+        } catch (InterruptedException e) {
+            // 当收到中断信号时，静默处理
+            logger.debug("Process execution interrupted");
+            result.setErrorMessage("Process interrupted");
+            result.setCoverageData(new byte[65536]);  // 设置空的覆盖率数据
+            return result;
+        } catch (IOException e) {
+            // 处理进程终止时的IO异常
+            if (e.getMessage() != null && e.getMessage().contains("Failed to exec spawn helper")) {
+                logger.debug("Process terminated during execution");
+                result.setErrorMessage("Process terminated");
+                result.setCoverageData(new byte[65536]);  // 设置空的覆盖率数据
+                return result;
+            }
+            // 其他IO异常仍然当作错误处理
+            logger.error("IO error during execution", e);
+            throw new ExecutorException("IO error during execution", e);
         } catch (Exception e) {
             // 其他未预期的错误，包装成ExecutorException
             logger.error("Unexpected error during execution", e);
