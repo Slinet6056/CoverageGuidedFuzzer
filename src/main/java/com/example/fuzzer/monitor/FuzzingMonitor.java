@@ -40,7 +40,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
     private final AtomicLong totalExecutions;
     private final int totalEdges;
     private final AtomicInteger coveredEdges;
-    private final AtomicInteger uniquePaths;  // 新增：统计独特路径数量
     private final ReentrantLock coverageLock;
     private final OutputManager outputManager;
     private final SeedSorter seedSorter;  // 新增：种子排序器引用
@@ -48,7 +47,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
     private final AtomicInteger newCoverageCount;
     private final AtomicInteger hangCount;  // 新增：超时计数
     private final AtomicLong totalExecutionTime;  // 新增：总执行时间
-    private final AtomicInteger maxCoverageIncrease;  // 新增：最大覆盖率增长
     private final AtomicLong lastCoverageIncrease;  // 新增：上次覆盖率增长时间
     private final ReentrantLock outputLock = new ReentrantLock(); // 新增：输出锁
     private final ScheduledExecutorService statusUpdater;
@@ -74,14 +72,12 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
         this.totalExecutions = new AtomicLong(0);
         this.totalEdges = mapSize;
         this.coveredEdges = new AtomicInteger(0);
-        this.uniquePaths = new AtomicInteger(0);  // 新增
         this.coverageLock = new ReentrantLock();
         this.outputManager = new OutputManager(outputPath);
         this.crashCount = new AtomicInteger(0);
         this.newCoverageCount = new AtomicInteger(0);
         this.hangCount = new AtomicInteger(0);  // 新增
         this.totalExecutionTime = new AtomicLong(0);  // 新增
-        this.maxCoverageIncrease = new AtomicInteger(0);  // 新增
         this.lastCoverageIncrease = new AtomicLong(startTime);  // 新增
         this.peakExecSpeed = 0.0;  // 新增
 
@@ -146,7 +142,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
         long execCount = totalExecutions.incrementAndGet();
         result.setExecutionCount(execCount);
         boolean newCoverage = false;
-        boolean newPath = false;
 
         try {
             // 处理异常情况优先
@@ -184,7 +179,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
                     if (newClass != oldClass) {
                         // 如果执行次数的分类不同，说明找到了新的路径
                         globalCoverage[i] = coverageData[i];
-                        newPath = true;
                         if (oldClass == 0) {
                             // 如果是从未执行变成执行，这是新的覆盖
                             newCoverage = true;
@@ -201,11 +195,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
                     outputManager.saveQueueInput(result.getInput(), id, result, true);
                     updateCoveredEdges();
                     updateStats();
-                }
-
-                if (newPath) {
-                    uniquePaths.incrementAndGet();
-                    lastFindTime = System.currentTimeMillis();
                 }
 
                 // 更新bitmap文件
@@ -336,9 +325,9 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
             System.out.printf("\033[33mexec/s: %,d\033[0m (peak: \033[33m%,d\033[0m) | ",
                     (int) execPerSec, (int) peakExecSpeed);
 
-            // 用例数量和路径数量
-            System.out.printf("\033[1mcases:\033[0m \033[32m%d\033[0m (\033[36mpool:\033[0m \033[32m%d\033[0m, \033[36mpaths:\033[0m \033[32m%d\033[0m) | ",
-                    newCoverageCount.get(), seedSorter.size(), uniquePaths.get());
+            // pool和用例数量
+            System.out.printf("pool: \033[32m%d\033[0m | \033[1mcases:\033[0m \033[32m%d\033[0m | ",
+                    seedSorter.size(), newCoverageCount.get());
 
             // crash和hang数量
             int crashes = outputManager.getUniqueCrashCount();
@@ -426,10 +415,6 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
             // 性能统计
             double avgExecTime = totalExecutionTime.get() / (double) totalExecs;
             System.out.printf("\033[1m平均执行时间:\033[0m %.2f ms\n", avgExecTime);
-
-            // 覆盖率增长统计
-            System.out.printf("\033[1m最大单次覆盖率增长:\033[0m %.2f%%\n",
-                    (maxCoverageIncrease.get() * 100.0) / totalEdges);
 
             System.out.println("\033[36m============================\033[0m");
 

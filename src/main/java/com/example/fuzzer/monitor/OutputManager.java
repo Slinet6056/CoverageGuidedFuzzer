@@ -197,7 +197,7 @@ public class OutputManager {
                 crashId,
                 exitCode);
         Path crashPath = crashesDir.resolve(crashName);
-        Files.write(crashPath, input, StandardOpenOption.CREATE);
+//        Files.write(crashPath, input, StandardOpenOption.CREATE);
     }
 
     public void saveHangInput(byte[] input, long executionTime) throws IOException {

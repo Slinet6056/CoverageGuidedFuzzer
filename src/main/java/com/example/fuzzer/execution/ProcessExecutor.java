@@ -281,9 +281,8 @@ public class ProcessExecutor implements Executor {
         return result;
     }
 
-    private void handleTimeout(Process process, ExecutionResult result) throws IOException {
+    private void handleTimeout(Process process, ExecutionResult result) {
         String msg = "Execution timeout (" + config.getTimeoutSeconds() + " seconds)";
-        logger.error(msg, null);
         result.setTimeout(true);
         result.setExitCode(124);
         result.setErrorMessage(msg);

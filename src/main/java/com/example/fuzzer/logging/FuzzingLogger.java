@@ -74,7 +74,7 @@ public class FuzzingLogger {
     public void info(String message) throws IOException {
         log(GENERAL_LOG, "INFO", message);
     }
-    
+
     /**
      * 写入警告日志
      */
