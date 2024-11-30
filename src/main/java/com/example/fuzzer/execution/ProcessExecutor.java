@@ -1,5 +1,6 @@
 package com.example.fuzzer.execution;
 
+import com.example.fuzzer.logging.FuzzingLogger;
 import com.example.fuzzer.sharedmemory.SharedMemoryManager;
 
 import java.io.*;
@@ -13,6 +14,7 @@ public class ProcessExecutor implements Executor {
     private final String targetProgramPath;
     private final SharedMemoryManager shmManager;
     private final ExecutorConfig config;
+    private final FuzzingLogger logger = FuzzingLogger.getInstance();
 
     public ProcessExecutor(String targetProgramPath, SharedMemoryManager shmManager) {
         this(targetProgramPath, shmManager, new ExecutorConfig());
@@ -25,12 +27,12 @@ public class ProcessExecutor implements Executor {
     }
 
     @Override
-    public ExecutionResult execute(byte[] input) {
+    public ExecutionResult execute(byte[] input) throws IOException {
         return executeMultipleInputs(new byte[][]{input});
     }
 
     @Override
-    public ExecutionResult executeMultipleInputs(byte[][] inputs) {
+    public ExecutionResult executeMultipleInputs(byte[][] inputs) throws IOException {
         ExecutionResult result = new ExecutionResult();
         List<File> inputFiles = new ArrayList<>();
         long startTime = System.currentTimeMillis();
@@ -46,8 +48,10 @@ public class ProcessExecutor implements Executor {
 
             // Validate input count
             if (inputFileCount > 0 && inputFileCount != inputs.length) {
-                throw new IOException("Number of @@ arguments (" + inputFileCount +
-                        ") doesn't match number of inputs (" + inputs.length + ")");
+                String msg = "Number of @@ arguments (" + inputFileCount +
+                        ") doesn't match number of inputs (" + inputs.length + ")";
+                logger.error(msg, null);
+                throw new ExecutorException(msg);
             }
 
             // Create input files
@@ -56,7 +60,9 @@ public class ProcessExecutor implements Executor {
                 for (int i = 0; i < inputs.length; i++) {
                     File inputFile = writeInputToFile(inputs[i]);
                     if (inputFile == null) {
-                        throw new IOException("Failed to create input file " + (i + 1));
+                        String msg = "Failed to create input file " + (i + 1);
+                        logger.error(msg, null);
+                        throw new ExecutorException(msg);
                     }
                     inputFiles.add(inputFile);
                 }
@@ -64,16 +70,22 @@ public class ProcessExecutor implements Executor {
                 // If no @@ but we have input, create one file for stdin
                 File inputFile = writeInputToFile(inputs[0]);
                 if (inputFile == null) {
-                    throw new IOException("Failed to create input file");
+                    String msg = "Failed to create input file";
+                    logger.error(msg, null);
+                    throw new ExecutorException(msg);
                 }
                 inputFiles.add(inputFile);
             }
 
             result = executeProcess(inputFiles, inputs);
 
+        } catch (ExecutorException e) {
+            // 执行器的错误，直接抛出
+            throw e;
         } catch (Exception e) {
-            result.setErrorMessage(e.getMessage());
-            result.setExitCode(-1);
+            // 其他未预期的错误，包装成ExecutorException
+            logger.error("Unexpected error during execution", e);
+            throw new ExecutorException("Unexpected error during execution", e);
         } finally {
             if (config.isDeleteInputFile()) {
                 // Clean up all created input files
@@ -138,9 +150,60 @@ public class ProcessExecutor implements Executor {
             try {
                 // 如果没有通过命令行参数指定输入文件，则通过标准输入传入第一个输入
                 if (!hasInputFileArg && inputs.length > 0) {
-                    try (OutputStream stdin = process.getOutputStream()) {
+                    OutputStream stdin = process.getOutputStream();
+                    InputStream stdout = process.getInputStream();
+                    InputStream stderr = process.getErrorStream();
+
+                    // 创建输出流读取线程
+                    Thread outputReader = new Thread(() -> {
+                        byte[] bytes = new byte[1024];
+                        try {
+                            while (process.isAlive() && stdout.read(bytes) != -1) {
+                                // 持续读取输出，防止管道阻塞
+                            }
+                        } catch (IOException e) {
+                            // 忽略读取错误
+                        }
+                    });
+
+                    Thread errorReader = new Thread(() -> {
+                        byte[] bytes = new byte[1024];
+                        try {
+                            while (process.isAlive() && stderr.read(bytes) != -1) {
+                                // 持续读取错误输出，防止管道阻塞
+                            }
+                        } catch (IOException e) {
+                            // 忽略读取错误
+                        }
+                    });
+
+                    // 启动读取线程
+                    outputReader.start();
+                    errorReader.start();
+
+                    try {
+                        // 写入输入数据
                         stdin.write(inputs[0]);
                         stdin.flush();
+
+                        // 关闭输入流，表示没有更多输入
+                        stdin.close();
+
+                        // 等待读取线程结束，但设置超时
+                        long timeout = config.getTimeoutSeconds() * 1000L;
+                        long startWait = System.currentTimeMillis();
+                        while (outputReader.isAlive() || errorReader.isAlive()) {
+                            if (System.currentTimeMillis() - startWait > timeout) {
+                                break;
+                            }
+                            Thread.sleep(10);
+                        }
+                    } catch (IOException | InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        // 确保线程停止
+                        outputReader.interrupt();
+                        errorReader.interrupt();
                     }
                 }
 
@@ -170,18 +233,16 @@ public class ProcessExecutor implements Executor {
                     // 获取覆盖率数据
                     byte[] coverageData = shmManager.readSharedMemory();
                     if (coverageData == null) {
-                        result.setErrorMessage("无法读取覆盖率数据");
-                        retryCount++;
-                        continue;
+                        logger.error("Failed to read coverage data", null);
+                        throw new ExecutorException("Failed to read coverage data");
                     }
 
                     result.setCoverageData(coverageData);
                     return result;
 
                 } catch (ExecutionException e) {
-                    result.setErrorMessage("执行异常: " + e.getMessage());
-                    result.setExitCode(-1);
-                    break;
+                    logger.error("Execution exception", e);
+                    throw new ExecutorException("Execution failed", e);
                 }
 
             } finally {
@@ -196,22 +257,25 @@ public class ProcessExecutor implements Executor {
         }
 
         if (retryCount > config.getMaxRetries()) {
-            result.setErrorMessage("达到最大重试次数");
+            logger.error("Maximum retry count reached", null);
+            throw new ExecutorException("Maximum retry count reached");
         }
 
         return result;
     }
 
-    private void handleTimeout(Process process, ExecutionResult result) {
+    private void handleTimeout(Process process, ExecutionResult result) throws IOException {
+        String msg = "Execution timeout (" + config.getTimeoutSeconds() + " seconds)";
+        logger.error(msg, null);
         result.setTimeout(true);
         result.setExitCode(124);
-        result.setErrorMessage("执行超时（" + config.getTimeoutSeconds() + "秒）");
+        result.setErrorMessage(msg);
 
         // Set execution time to timeout duration
         result.setExecutionTime(config.getTimeoutSeconds() * 1000L);
     }
 
-    private void handleProcessOutput(Process process, ExecutionResult result) {
+    private void handleProcessOutput(Process process, ExecutionResult result) throws IOException {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getErrorStream()))) {
             String errorOutput = reader.readLine();
@@ -219,11 +283,12 @@ public class ProcessExecutor implements Executor {
                 result.setErrorMessage(errorOutput);
             }
         } catch (IOException e) {
-            // 忽略读取错误
+            logger.error("Failed to read process error stream", e);
+            throw new ExecutorException("Failed to read process error stream", e);
         }
     }
 
-    private void cleanupProcess(Process process) {
+    private void cleanupProcess(Process process) throws IOException {
         if (process != null && process.isAlive()) {
             try {
                 process.destroy();
@@ -232,12 +297,16 @@ public class ProcessExecutor implements Executor {
                     process.destroyForcibly();
                     // 再次等待，确保进程被终止
                     if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
-                        System.err.println("警告：进程无法被终止 (PID: " + process.pid() + ")");
+                        String msg = "Process could not be terminated (PID: " + process.pid() + ")";
+                        logger.error(msg, null);
+                        throw new ExecutorException(msg);
                     }
                 }
             } catch (InterruptedException e) {
                 process.destroyForcibly();
-                Thread.currentThread().interrupt(); // 保留中断状态
+                logger.error("Process cleanup interrupted", e);
+                Thread.currentThread().interrupt();
+                throw new ExecutorException("Process cleanup interrupted", e);
             }
         }
     }

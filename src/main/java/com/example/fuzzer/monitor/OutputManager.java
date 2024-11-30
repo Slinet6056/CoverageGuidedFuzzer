@@ -1,6 +1,7 @@
 package com.example.fuzzer.monitor;
 
 import com.example.fuzzer.execution.ExecutionResult;
+import com.example.fuzzer.logging.FuzzingLogger;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,13 +26,16 @@ public class OutputManager {
     private static final AtomicInteger uniqueCrashCount = new AtomicInteger(0);
     private static final AtomicInteger uniqueHangCount = new AtomicInteger(0);
     private static final long COVERAGE_REPORT_UPDATE_INTERVAL = 5000; // 每5秒更新一次报告
+    private static final long STATS_UPDATE_INTERVAL = 5000; // 每5秒更新一次性能统计
     private final Path outputDir;
     private final Path queueDir;
     private final Path crashesDir;
     private final Path hangsDir;
     private final Path plotsDir;      // 新增：图表目录
     private final Path logsDir;       // 新增：日志目录
+    private final FuzzingLogger logger;
     private volatile long lastCoverageReportTime = 0;
+    private volatile long lastStatsUpdateTime = 0;
 
     public OutputManager(String outputPath) throws IOException {
         this.outputDir = Paths.get(outputPath);
@@ -42,6 +46,7 @@ public class OutputManager {
         this.logsDir = outputDir.resolve("logs");
 
         initializeDirectories();
+        this.logger = FuzzingLogger.createInstance(this.logsDir);
         createReadme();
     }
 
@@ -58,25 +63,24 @@ public class OutputManager {
     private void createReadme() throws IOException {
         Path readmePath = outputDir.resolve(README);
         if (!Files.exists(readmePath)) {
-            StringBuilder readme = new StringBuilder();
-            readme.append("Coverage-Guided Fuzzer Output Directory\n");
-            readme.append("===================================\n\n");
-            readme.append("Directory Structure:\n");
-            readme.append("- queue/: Directory containing all test cases\n");
-            readme.append("- crashes/: Directory containing inputs that caused crashes\n");
-            readme.append("- hangs/: Directory containing inputs that caused hangs\n");
-            readme.append("- plots/: Coverage and performance graphs\n");
-            readme.append("- logs/: Detailed execution logs\n");
-            readme.append("\nFiles:\n");
-            readme.append("- cmdline: Command line used for running the target\n");
-            readme.append("- fuzz_bitmap: Fuzzer bitmap data\n");
-            readme.append("- fuzzer_setup: Fuzzer configuration details\n");
-            readme.append("- fuzzer_stats: Internal fuzzer state statistics\n");
-            readme.append("- plot_data: Fuzzing test statistical data\n");
-            readme.append("- coverage_report.html: Interactive coverage report\n\n");
-            readme.append("Created: ").append(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)).append("\n");
+            String readme = "Coverage-Guided Fuzzer Output Directory\n" +
+                    "===================================\n\n" +
+                    "Directory Structure:\n" +
+                    "- queue/: Directory containing all test cases\n" +
+                    "- crashes/: Directory containing inputs that caused crashes\n" +
+                    "- hangs/: Directory containing inputs that caused hangs\n" +
+                    "- plots/: Coverage and performance graphs\n" +
+                    "- logs/: Detailed execution logs\n" +
+                    "\nFiles:\n" +
+                    "- cmdline: Command line used for running the target\n" +
+                    "- fuzz_bitmap: Fuzzer bitmap data\n" +
+                    "- fuzzer_setup: Fuzzer configuration details\n" +
+                    "- fuzzer_stats: Internal fuzzer state statistics\n" +
+                    "- plot_data: Fuzzing test statistical data\n" +
+                    "- coverage_report.html: Interactive coverage report\n\n" +
+                    "Created: " + LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "\n";
 
-            Files.write(readmePath, readme.toString().getBytes(), StandardOpenOption.CREATE);
+            Files.write(readmePath, readme.getBytes(), StandardOpenOption.CREATE);
         }
     }
 
@@ -104,9 +108,6 @@ public class OutputManager {
         setup.append(" -- '").append(targetProgram).append("'\n");
 
         Files.write(setupPath, setup.toString().getBytes(), StandardOpenOption.CREATE);
-
-        // 新增：记录到日志
-        appendToLog("fuzzer_setup.log", setup.toString());
     }
 
     public void updateFuzzerStats(
@@ -124,7 +125,15 @@ public class OutputManager {
 
         Path statsPath = outputDir.resolve(FUZZER_STATS);
         StringBuilder stats = new StringBuilder();
-        long currentTime = System.currentTimeMillis() / 1000;  // Convert to seconds
+        long currentTime = System.currentTimeMillis();
+
+        // 检查更新间隔
+        if (currentTime - lastStatsUpdateTime < STATS_UPDATE_INTERVAL) {
+            return;
+        }
+        lastStatsUpdateTime = currentTime;
+
+        currentTime = currentTime / 1000;  // Convert to seconds
 
         stats.append(String.format("start_time        : %d\n", startTime / 1000));
         stats.append(String.format("last_update       : %d\n", currentTime));
@@ -143,8 +152,10 @@ public class OutputManager {
 
         Files.write(statsPath, stats.toString().getBytes(), StandardOpenOption.CREATE);
 
-        // 新增：记录到日志
-        appendToLog("fuzzer_stats.log", stats.toString());
+        // 记录到性能日志
+        String logEntry = String.format("Executions: %d (%.2f/s), Coverage: %.2f%%, Queue: %d, Crashes: %d, Hangs: %d",
+                totalExecutions, execsPerSec, bitmapCoverage, queueCount, crashCount, hangCount);
+        logger.performance(logEntry);
     }
 
     public void appendPlotData(String plotLine) throws IOException {
@@ -158,10 +169,10 @@ public class OutputManager {
         Files.write(bitmapPath, bitmap, StandardOpenOption.CREATE);
     }
 
-    public Path saveQueueInput(byte[] input, String id, ExecutionResult result, boolean newCoverage) throws IOException {
+    public void saveQueueInput(byte[] input, String id, ExecutionResult result, boolean newCoverage) throws IOException {
         // 只在覆盖率增加时保存文件
         if (!newCoverage) {
-            return null;
+            return;
         }
 
         // 构建文件名：使用执行时间而不是系统时间
@@ -173,64 +184,29 @@ public class OutputManager {
         Path inputPath = queueDir.resolve(filename);
         Files.write(inputPath, input, StandardOpenOption.CREATE);
 
-        return inputPath;
+        try {
+            logger.coverage(id);
+        } catch (IOException e) {
+            System.err.println("写入日志时出错: " + e.getMessage());
+        }
     }
 
-    public Path saveCrashInput(byte[] input, int exitCode) throws IOException {
+    public void saveCrashInput(byte[] input, int exitCode) throws IOException {
         int crashId = uniqueCrashCount.incrementAndGet();
         String crashName = String.format("id:%016d,exitcode:%d",
                 crashId,
                 exitCode);
         Path crashPath = crashesDir.resolve(crashName);
         Files.write(crashPath, input, StandardOpenOption.CREATE);
-
-        // 记录到日志
-        String logEntry = String.format("[%s] New crash found: %s (exit code: %d)\n",
-                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                crashName, exitCode);
-        appendToLog("crashes.log", logEntry);
-
-        return crashPath;
     }
 
-    public Path saveHangInput(byte[] input, long executionTime) throws IOException {
+    public void saveHangInput(byte[] input, long executionTime) throws IOException {
         int hangId = uniqueHangCount.incrementAndGet();
         String hangName = String.format("id:%016d,exec_time:%d",
                 hangId,
                 executionTime);
         Path hangPath = hangsDir.resolve(hangName);
         Files.write(hangPath, input, StandardOpenOption.CREATE);
-
-        // 记录到日志
-        String logEntry = String.format("[%s] New timeout detected: %s (execution time: %dms)%n",
-                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                hangName, executionTime);
-        appendToLog("hangs.log", logEntry);
-
-        // 更新超时统计信息
-        updateTimeoutStats(executionTime);
-
-        return hangPath;
-    }
-
-    private void updateTimeoutStats(long executionTime) throws IOException {
-        Path statsPath = logsDir.resolve("timeout_stats.log");
-        String stats = String.format("[%s] Total timeouts: %d, Latest execution time: %dms%n",
-                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                uniqueHangCount.get(), executionTime);
-
-        Files.write(statsPath, stats.getBytes(),
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-    }
-
-    public void appendToLog(String logFile, String content) throws IOException {
-        Path logPath = logsDir.resolve(logFile);
-        Files.write(logPath, content.getBytes(),
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-    }
-
-    public void writeCoverageReport(byte[] bitmap) throws IOException {
-        writeCoverageReport(bitmap, null, 0, 0, 0, 0, 0);
     }
 
     public void writeCoverageReport(byte[] bitmap, AtomicLong totalExecutions, long startTime,

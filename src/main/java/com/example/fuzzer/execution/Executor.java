@@ -1,7 +1,9 @@
 package com.example.fuzzer.execution;
 
-public interface Executor {
-    ExecutionResult execute(byte[] input);
+import java.io.IOException;
 
-    ExecutionResult executeMultipleInputs(byte[][] inputs);
+public interface Executor {
+    ExecutionResult execute(byte[] input) throws IOException;
+
+    ExecutionResult executeMultipleInputs(byte[][] inputs) throws IOException;
 }

@@ -4,6 +4,7 @@ import com.example.fuzzer.execution.ExecutionResult;
 import com.example.fuzzer.execution.Executor;
 import com.example.fuzzer.execution.ExecutorConfig;
 import com.example.fuzzer.execution.ProcessExecutor;
+import com.example.fuzzer.logging.FuzzingLogger;
 import com.example.fuzzer.monitor.AFLMonitor;
 import com.example.fuzzer.mutation.Mutator;
 import com.example.fuzzer.mutation.MutatorFactory;
@@ -54,6 +55,7 @@ public class Fuzzer {
     private final int numThreads;
     private final AtomicLong totalExecutions;
     private final AtomicInteger crashCount;
+    private final FuzzingLogger logger;
     private ExecutorService executorService;
     private List<Executor> executors = new ArrayList<>();
     private volatile boolean isRunning;
@@ -92,12 +94,6 @@ public class Fuzzer {
         // 初始化共享内存管理器
         this.shmManager = new SharedMemoryManager(MAP_SIZE);
 
-        // 初始化执行器
-        ExecutorConfig config = new ExecutorConfig.Builder()
-                .timeout(timeout)
-                .build();
-        this.executor = new ProcessExecutor(targetProgramPath, shmManager, config);
-
         // 初始化种子排序器
         this.seedSorter = SeedSorterFactory.createSeedSorter(seedSorterType);
 
@@ -105,12 +101,21 @@ public class Fuzzer {
         this.monitor = new AFLMonitor(MAP_SIZE, outputPath, seedSorter);
         this.monitor.setTargetInfo(targetProgramPath, programArgs);
 
+        // 初始化执行器
+        ExecutorConfig config = new ExecutorConfig.Builder()
+                .timeout(timeout)
+                .build();
+        this.executor = new ProcessExecutor(targetProgramPath, shmManager, config);
+
         // 初始化变异器
         this.mutator = MutatorFactory.createMutator(mutatorType);
 
         // 初始化调度器
         List<Seed> initialSeeds = new ArrayList<>();  // 初始为空，稍后通过loadSeeds添加
         this.scheduler = new AFLScheduler(initialSeeds, energySchedulerType, seedSorter);
+
+        // 获取日志记录器
+        this.logger = FuzzingLogger.getInstance();
 
         // 加载种子
         loadSeeds();
@@ -302,6 +307,11 @@ public class Fuzzer {
     private void setupShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             isRunning = false;
+            try {
+                logger.info("接收到终止信号，正在退出...");
+            } catch (IOException e) {
+                System.err.println("写入日志时出错: " + e.getMessage());
+            }
             System.out.println("\n接收到终止信号，正在退出...");
             monitor.printFinalStats();
             shutdown();
@@ -310,27 +320,37 @@ public class Fuzzer {
 
     public void run() {
         printInitialInfo();
-        System.out.println("使用 " + numThreads + " 个线程进行模糊测试");
-
-        // 标记开始模糊测试
-        seedSorter.startFuzzing();
-
-        // 启动多个工作线程
-        for (int i = 0; i < numThreads; i++) {
-            executorService.submit(this::fuzzingWorker);
-        }
-
-        // 等待所有线程完成
         try {
-            executorService.shutdown();
-            while (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
-                if (!isRunning) {
-                    executorService.shutdownNow();
-                    break;
+            logger.info("开始模糊测试，使用 " + numThreads + " 个线程");
+            System.out.println("使用 " + numThreads + " 个线程进行模糊测试");
+
+            // 标记开始模糊测试
+            seedSorter.startFuzzing();
+
+            // 启动多个工作线程
+            for (int i = 0; i < numThreads; i++) {
+                executorService.submit(this::fuzzingWorker);
+            }
+
+            // 等待所有线程完成
+            try {
+                executorService.shutdown();
+                while (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
+                    if (!isRunning) {
+                        executorService.shutdownNow();
+                        break;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                try {
+                    logger.error("模糊测试被中断", e);
+                } catch (IOException logError) {
+                    System.err.println("写入日志时出错: " + logError.getMessage());
                 }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            System.err.println("写入日志时出错: " + e.getMessage());
         }
     }
 
@@ -342,6 +362,11 @@ public class Fuzzer {
             // 检查是否达到指定运行时长
             if (System.currentTimeMillis() >= endTimeMillis) {
                 isRunning = false;
+                try {
+                    logger.info("已达到指定运行时长，测试结束");
+                } catch (IOException e) {
+                    System.err.println("写入日志时出错: " + e.getMessage());
+                }
                 System.out.println("\n已达到指定运行时长，测试结束");
                 break;
             }
@@ -394,6 +419,11 @@ public class Fuzzer {
                 if (result.getExitCode() != 0) {
                     // handleCrash(result);
                     crashCount.incrementAndGet();
+                    try {
+                        logger.crash(result.getInput(), result.getExitCode(), result.getErrorMessage());
+                    } catch (IOException e) {
+                        System.err.println("写入日志时出错: " + e.getMessage());
+                    }
                 } else if (!result.isTimeout()) {
                     handleNewCoverage(result, mutatedInput);
                 }
@@ -404,8 +434,19 @@ public class Fuzzer {
                 // Periodically clean up stray files (every 1000 executions)
                 if (totalExecutions.get() % 1000 == 0 && threadExecutor instanceof ProcessExecutor) {
                     ((ProcessExecutor) threadExecutor).cleanupStrayFiles();
+                    try {
+                        logger.info("已执行 " + totalExecutions.get() + " 次测试，" +
+                                "发现 " + crashCount.get() + " 个崩溃");
+                    } catch (IOException e) {
+                        System.err.println("写入日志时出错: " + e.getMessage());
+                    }
                 }
             } catch (Exception e) {
+                try {
+                    logger.error("模糊测试过程中发生错误", e);
+                } catch (IOException logError) {
+                    System.err.println("写入日志时出错: " + logError.getMessage());
+                }
                 e.printStackTrace();
             }
         }
@@ -441,6 +482,11 @@ public class Fuzzer {
             } catch (InterruptedException e) {
                 executorService.shutdownNow();
                 Thread.currentThread().interrupt();
+                try {
+                    logger.error("关闭线程池时被中断", e);
+                } catch (IOException logError) {
+                    System.err.println("写入日志时出错: " + logError.getMessage());
+                }
             }
         }
 
@@ -456,8 +502,20 @@ public class Fuzzer {
             try {
                 shmManager.destroySharedMemory();
             } catch (Exception e) {
+                try {
+                    logger.error("清理共享内存时出错", e);
+                } catch (IOException logError) {
+                    System.err.println("写入日志时出错: " + logError.getMessage());
+                }
                 System.err.println("清理共享内存时出错: " + e.getMessage());
             }
+        }
+
+        try {
+            logger.info("模糊测试已结束，总执行次数: " + totalExecutions.get() +
+                    ", 发现崩溃数: " + crashCount.get());
+        } catch (IOException e) {
+            System.err.println("写入日志时出错: " + e.getMessage());
         }
     }
 
