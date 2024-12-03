@@ -195,6 +195,7 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
                     outputManager.saveQueueInput(result.getInput(), id, result, true);
                     updateCoveredEdges();
                     updateStats();
+                    lastCoverageIncrease.set(System.currentTimeMillis());  // 更新最后一次覆盖率增长时间
                 }
 
                 // 更新bitmap文件

@@ -2,6 +2,9 @@ package com.example.fuzzer.monitor;
 
 import com.example.fuzzer.execution.ExecutionResult;
 import com.example.fuzzer.logging.FuzzingLogger;
+import org.jfree.data.time.Second;
+import org.jfree.data.time.TimeSeries;
+import org.jfree.data.time.TimeSeriesCollection;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,6 +13,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -25,8 +29,9 @@ public class OutputManager {
     private static final String README = "README.txt";
     private static final AtomicInteger uniqueCrashCount = new AtomicInteger(0);
     private static final AtomicInteger uniqueHangCount = new AtomicInteger(0);
-    private static final long COVERAGE_REPORT_UPDATE_INTERVAL = 5000; // 每5秒更新一次报告
-    private static final long STATS_UPDATE_INTERVAL = 5000; // 每5秒更新一次性能统计
+    private static final long COVERAGE_REPORT_UPDATE_INTERVAL = 30000; // 每30秒更新一次报告
+    private static final long STATS_UPDATE_INTERVAL = 30000; // 每30秒更新一次性能统计
+    private static final long CHART_UPDATE_INTERVAL = 30000; // 每30秒更新一次图表
     private final Path outputDir;
     private final Path queueDir;
     private final Path crashesDir;
@@ -34,8 +39,15 @@ public class OutputManager {
     private final Path plotsDir;      // 新增：图表目录
     private final Path logsDir;       // 新增：日志目录
     private final FuzzingLogger logger;
+    private final TimeSeries execSpeedSeries;
+    private final TimeSeries coverageSeries;
+    private final TimeSeries crashSeries;
+    private final TimeSeries hangSeries;
+    private final TimeSeriesCollection performanceDataset;
+    private final TimeSeriesCollection anomalyDataset;
     private volatile long lastCoverageReportTime = 0;
     private volatile long lastStatsUpdateTime = 0;
+    private volatile long lastChartUpdateTime = 0;
 
     public OutputManager(String outputPath) throws IOException {
         this.outputDir = Paths.get(outputPath);
@@ -48,6 +60,21 @@ public class OutputManager {
         initializeDirectories();
         this.logger = FuzzingLogger.createInstance(this.logsDir);
         createReadme();
+
+        // 初始化时间序列
+        execSpeedSeries = new TimeSeries("Execution Speed");
+        coverageSeries = new TimeSeries("Coverage");
+        crashSeries = new TimeSeries("Crashes");
+        hangSeries = new TimeSeries("Hangs");
+
+        // 创建数据集
+        performanceDataset = new TimeSeriesCollection();
+        performanceDataset.addSeries(execSpeedSeries);
+        performanceDataset.addSeries(coverageSeries);
+
+        anomalyDataset = new TimeSeriesCollection();
+        anomalyDataset.addSeries(crashSeries);
+        anomalyDataset.addSeries(hangSeries);
     }
 
     private void initializeDirectories() throws IOException {
@@ -133,6 +160,33 @@ public class OutputManager {
         }
         lastStatsUpdateTime = currentTime;
 
+        // 更新时间序列数据
+        Second currentSecond = new Second(new Date(currentTime));
+        execSpeedSeries.addOrUpdate(currentSecond, execsPerSec);
+        coverageSeries.addOrUpdate(currentSecond, bitmapCoverage);
+        crashSeries.addOrUpdate(currentSecond, crashCount);
+        hangSeries.addOrUpdate(currentSecond, hangCount);
+
+        // 定期更新图表
+        if (currentTime - lastChartUpdateTime >= CHART_UPDATE_INTERVAL) {
+            lastChartUpdateTime = currentTime;
+            try {
+                // 生成性能图表
+                ChartGenerator.generatePerformanceChart(
+                        plotsDir.resolve("performance_chart.png").toFile(),
+                        performanceDataset
+                );
+
+                // 生成异常趋势图表
+                ChartGenerator.generateAnomalyTrendChart(
+                        plotsDir.resolve("anomaly_trend_chart.png").toFile(),
+                        anomalyDataset
+                );
+            } catch (IOException e) {
+                logger.error("生成图表时发生错误:", e);
+            }
+        }
+
         currentTime = currentTime / 1000;  // Convert to seconds
 
         stats.append(String.format("start_time        : %d\n", startTime / 1000));
@@ -206,7 +260,7 @@ public class OutputManager {
                 hangId,
                 executionTime);
         Path hangPath = hangsDir.resolve(hangName);
-        Files.write(hangPath, input, StandardOpenOption.CREATE);
+//        Files.write(hangPath, input, StandardOpenOption.CREATE);
     }
 
     public void writeCoverageReport(byte[] bitmap, AtomicLong totalExecutions, long startTime,
@@ -267,11 +321,11 @@ public class OutputManager {
         int commonHit = 0;   // 5-99次
         int frequentHit = 0; // 100+次
 
-        for (int i = 0; i < totalEdges; i++) {
-            if (bitmap[i] != 0) {
+        for (byte b : bitmap) {
+            if (b != 0) {
                 coveredEdges++;
-                if (bitmap[i] < 5) rarelyHit++;
-                else if (bitmap[i] < 100) commonHit++;
+                if (b < 5) rarelyHit++;
+                else if (b < 100) commonHit++;
                 else frequentHit++;
             } else {
                 neverHit++;
@@ -286,6 +340,18 @@ public class OutputManager {
                 .append(String.format("                <div class='progress' style='width: %.2f%%'></div>\n", coveragePercent))
                 .append("            </div>\n")
                 .append(String.format("            <p>%.2f%% (%d of %d edges)</p>\n", coveragePercent, coveredEdges, totalEdges))
+                .append("        </div>\n");
+
+        // 添加性能趋势图
+        report.append("        <div class='stat-box'>\n")
+                .append("            <h2>Performance Trend</h2>\n")
+                .append("            <img src='plots/performance_chart.png' alt='Performance Trend' style='width:100%; max-width:1000px;'/>\n")
+                .append("        </div>\n");
+
+        // 添加异常发现趋势图
+        report.append("        <div class='stat-box'>\n")
+                .append("            <h2>Anomaly Discovery Trend</h2>\n")
+                .append("            <img src='plots/anomaly_trend_chart.png' alt='Anomaly Trend' style='width:100%; max-width:1000px;'/>\n")
                 .append("        </div>\n");
 
         // 详细统计
