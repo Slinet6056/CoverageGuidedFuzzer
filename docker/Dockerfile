@@ -29,7 +29,7 @@ ENV PROGRAM_ARGS="@@"
 RUN mkdir -p /app/fuzz_target /app/fuzz_seeds /app/fuzz_output
 
 # Copy the entry script
-COPY docker-entrypoint.sh /
+COPY docker/docker-entrypoint.sh /
 RUN chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

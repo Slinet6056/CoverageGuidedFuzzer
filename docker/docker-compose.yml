@@ -1,0 +1,192 @@
+services:
+  cxxfilt:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/cxxfilt/cxxfilt:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/cxxfilt/cxxfilt.orig:/app/fuzz_target/cxxfilt.orig
+      - ${BASE_DIR}/fuzz_targets/cxxfilt/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/cxxfilt:/app/fuzz_output
+
+  readelf:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=-a @@ @@
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/readelf/readelf:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/readelf/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/readelf:/app/fuzz_output
+
+  nm-new:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/nm-new/nm-new:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/nm-new/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/nm-new:/app/fuzz_output
+
+  objdump:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=-d @@
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/objdump/objdump:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/objdump/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/objdump:/app/fuzz_output
+
+  djpeg:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/djpeg/djpeg:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/djpeg/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/djpeg:/app/fuzz_output
+
+  readpng:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/readpng/readpng:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/readpng/readpng.orig:/app/fuzz_target/readpng.orig
+      - ${BASE_DIR}/fuzz_targets/readpng/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/readpng:/app/fuzz_output
+
+  xmllint:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/xmllint/xmllint:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/xmllint/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/xmllint:/app/fuzz_output
+
+  lua:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=${PROGRAM_ARGS}
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/lua/lua:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/lua/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/lua:/app/fuzz_output
+
+  mjs:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=-f @@
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/mjs/mjs:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/mjs/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/mjs:/app/fuzz_output
+
+  tcpdump:
+    image: slinet6056/fuzzer:latest
+    environment:
+      - MUTATOR_TYPE=${MUTATOR_TYPE}
+      - ENERGY_SCHEDULER_TYPE=${ENERGY_SCHEDULER_TYPE}
+      - SEED_SORTER_TYPE=${SEED_SORTER_TYPE}
+      - DURATION_MINUTES=${DURATION_MINUTES}
+      - TIMEOUT=${TIMEOUT}
+      - PROGRAM_ARGS=-nr @@
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT}"
+          memory: ${MEMORY_LIMIT}
+    volumes:
+      - ${BASE_DIR}/fuzz_targets/tcpdump/tcpdump:/app/fuzz_target/target
+      - ${BASE_DIR}/fuzz_targets/tcpdump/seeds/tmin:/app/fuzz_seeds
+      - ${BASE_DIR}/results/tcpdump:/app/fuzz_output
