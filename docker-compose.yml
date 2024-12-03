@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   fuzzer-base: &fuzzer-base
-    build: .
+    image: slinet6056/fuzzer:latest
     environment:
       - MUTATOR_TYPE=AFL
       - ENERGY_SCHEDULER_TYPE=COVERAGE_BASED
