@@ -1,0 +1,109 @@
+version: "3.8"
+
+services:
+  fuzzer-base: &fuzzer-base
+    build: .
+    environment:
+      - MUTATOR_TYPE=AFL
+      - ENERGY_SCHEDULER_TYPE=COVERAGE_BASED
+      - SEED_SORTER_TYPE=HEURISTIC
+      - DURATION_MINUTES=1440
+      - TIMEOUT=1
+      - PROGRAM_ARGS=@@
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  cxxfilt:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/cxxfilt/cxxfilt:/app/fuzz_target/target
+      - ./fuzz_targets/cxxfilt/cxxfilt.orig:/app/fuzz_target/cxxfilt.orig
+      - ./fuzz_targets/cxxfilt/seeds/tmin:/app/fuzz_seeds
+      - ./results/cxxfilt:/app/fuzz_output
+
+  readelf:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=-a @@ @@
+    volumes:
+      - ./fuzz_targets/readelf/readelf:/app/fuzz_target/target
+      - ./fuzz_targets/readelf/seeds/tmin:/app/fuzz_seeds
+      - ./results/readelf:/app/fuzz_output
+
+  nm-new:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/nm-new/nm-new:/app/fuzz_target/target
+      - ./fuzz_targets/nm-new/seeds/tmin:/app/fuzz_seeds
+      - ./results/nm-new:/app/fuzz_output
+
+  objdump:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=-d @@
+    volumes:
+      - ./fuzz_targets/objdump/objdump:/app/fuzz_target/target
+      - ./fuzz_targets/objdump/seeds/tmin:/app/fuzz_seeds
+      - ./results/objdump:/app/fuzz_output
+
+  djpeg:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/djpeg/djpeg:/app/fuzz_target/target
+      - ./fuzz_targets/djpeg/seeds/tmin:/app/fuzz_seeds
+      - ./results/djpeg:/app/fuzz_output
+
+  readpng:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/readpng/readpng:/app/fuzz_target/target
+      - ./fuzz_targets/readpng/readpng.orig:/app/fuzz_target/readpng.orig
+      - ./fuzz_targets/readpng/seeds/tmin:/app/fuzz_seeds
+      - ./results/readpng:/app/fuzz_output
+
+  xmllint:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/xmllint/xmllint:/app/fuzz_target/target
+      - ./fuzz_targets/xmllint/seeds/tmin:/app/fuzz_seeds
+      - ./results/xmllint:/app/fuzz_output
+
+  lua:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=@@
+    volumes:
+      - ./fuzz_targets/lua/lua:/app/fuzz_target/target
+      - ./fuzz_targets/lua/seeds/tmin:/app/fuzz_seeds
+      - ./results/lua:/app/fuzz_output
+
+  mjs:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=-f @@
+    volumes:
+      - ./fuzz_targets/mjs/mjs:/app/fuzz_target/target
+      - ./fuzz_targets/mjs/seeds/tmin:/app/fuzz_seeds
+      - ./results/mjs:/app/fuzz_output
+
+  tcpdump:
+    <<: *fuzzer-base
+    environment:
+      - PROGRAM_ARGS=-nr @@
+    volumes:
+      - ./fuzz_targets/tcpdump/tcpdump:/app/fuzz_target/target
+      - ./fuzz_targets/tcpdump/seeds/tmin:/app/fuzz_seeds
+      - ./results/tcpdump:/app/fuzz_output
