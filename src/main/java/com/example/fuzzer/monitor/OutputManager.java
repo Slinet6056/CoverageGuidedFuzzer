@@ -48,6 +48,7 @@ public class OutputManager {
     private volatile long lastCoverageReportTime = 0;
     private volatile long lastStatsUpdateTime = 0;
     private volatile long lastChartUpdateTime = 0;
+    private final CrashStorageManager crashStorageManager;
 
     public OutputManager(String outputPath) throws IOException {
         this.outputDir = Paths.get(outputPath);
@@ -75,6 +76,8 @@ public class OutputManager {
         anomalyDataset = new TimeSeriesCollection();
         anomalyDataset.addSeries(crashSeries);
         anomalyDataset.addSeries(hangSeries);
+
+        this.crashStorageManager = new CrashStorageManager(crashesDir);
     }
 
     private void initializeDirectories() throws IOException {
@@ -247,11 +250,7 @@ public class OutputManager {
 
     public void saveCrashInput(byte[] input, int exitCode) throws IOException {
         int crashId = uniqueCrashCount.incrementAndGet();
-        String crashName = String.format("id:%016d,exitcode:%d",
-                crashId,
-                exitCode);
-        Path crashPath = crashesDir.resolve(crashName);
-//        Files.write(crashPath, input, StandardOpenOption.CREATE);
+        crashStorageManager.storeCrash(input, exitCode, crashId);
     }
 
     public void saveHangInput(byte[] input, long executionTime) throws IOException {
@@ -406,5 +405,9 @@ public class OutputManager {
 
     public int getUniqueHangCount() {
         return uniqueHangCount.get();
+    }
+
+    public void close() throws IOException {
+        crashStorageManager.close();
     }
 }

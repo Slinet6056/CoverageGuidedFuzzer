@@ -37,7 +37,4 @@ build/
 ### Mac OS ###
 .DS_Store
 
-crash*
 fuzz_output/
-AFLplusplus/
-evosuite-master-1.2.1-SNAPSHOT.jar

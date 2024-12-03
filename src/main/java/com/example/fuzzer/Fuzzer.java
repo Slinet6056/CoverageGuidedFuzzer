@@ -419,11 +419,11 @@ public class Fuzzer {
                 if (result.getExitCode() != 0) {
                     // handleCrash(result);
                     crashCount.incrementAndGet();
-                    try {
-                        logger.crash(result.getInput(), result.getExitCode(), result.getErrorMessage());
-                    } catch (IOException e) {
-                        System.err.println("写入日志时出错: " + e.getMessage());
-                    }
+                    // try {
+                    //     logger.crash(result.getInput(), result.getExitCode(), result.getErrorMessage());
+                    // } catch (IOException e) {
+                    //     System.err.println("写入日志时出错: " + e.getMessage());
+                    // }
                 } else if (!result.isTimeout()) {
                     handleNewCoverage(result, mutatedInput);
                 }
