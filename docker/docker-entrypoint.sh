@@ -10,7 +10,7 @@ cd /app
 
 # Construct Java command
 JAVA_CMD="java -Djava.library.path=/app/src/main/native"
-JAVA_CMD="$JAVA_CMD -jar target/CoverageGuidedFuzzer-1.0-SNAPSHOT-jar-with-dependencies.jar"
+JAVA_CMD="$JAVA_CMD -jar target/coverage-guided-fuzzer-jar-with-dependencies.jar"
 JAVA_CMD="$JAVA_CMD -p /app/fuzz_target/target"
 JAVA_CMD="$JAVA_CMD -s /app/fuzz_seeds"
 JAVA_CMD="$JAVA_CMD -m $MUTATOR_TYPE"
