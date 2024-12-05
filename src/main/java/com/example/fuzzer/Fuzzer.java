@@ -313,6 +313,7 @@ public class Fuzzer {
                 System.err.println("写入日志时出错: " + e.getMessage());
             }
             System.out.println("\n接收到终止信号，正在退出...");
+            monitor.flushCrashes();
             monitor.printFinalStats();
             shutdown();
         }));

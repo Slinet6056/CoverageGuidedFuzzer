@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 管理模糊测试的输出目录和文件
  */
-public class OutputManager {
+public class OutputManager implements AutoCloseable {
     private static final String CMDLINE_FILE = "cmdline";
     private static final String FUZZ_BITMAP = "fuzz_bitmap";
     private static final String FUZZER_SETUP = "fuzzer_setup";
@@ -45,10 +45,10 @@ public class OutputManager {
     private final TimeSeries hangSeries;
     private final TimeSeriesCollection performanceDataset;
     private final TimeSeriesCollection anomalyDataset;
+    private final CrashStorageManager crashStorageManager;
     private volatile long lastCoverageReportTime = 0;
     private volatile long lastStatsUpdateTime = 0;
     private volatile long lastChartUpdateTime = 0;
-    private final CrashStorageManager crashStorageManager;
 
     public OutputManager(String outputPath) throws IOException {
         this.outputDir = Paths.get(outputPath);
@@ -248,9 +248,11 @@ public class OutputManager {
         }
     }
 
-    public void saveCrashInput(byte[] input, int exitCode) throws IOException {
+    public void saveCrashInput(ExecutionResult result) throws IOException {
         int crashId = uniqueCrashCount.incrementAndGet();
-        crashStorageManager.storeCrash(input, exitCode, crashId);
+        if (!crashStorageManager.storeCrash(result.getInput(), result.getExitCode(), crashId, result.getErrorMessage())) {
+            uniqueCrashCount.decrementAndGet();
+        }
     }
 
     public void saveHangInput(byte[] input, long executionTime) throws IOException {
@@ -407,7 +409,20 @@ public class OutputManager {
         return uniqueHangCount.get();
     }
 
-    public void close() throws IOException {
-        crashStorageManager.close();
+    /**
+     * 手动保存所有pending的crash
+     * 这个方法可以在任何时候调用来确保所有crash都被保存
+     */
+    public void flushCrashes() {
+        if (crashStorageManager != null) {
+            crashStorageManager.flushPendingCrashes();
+        }
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (crashStorageManager != null) {
+            crashStorageManager.close();
+        }
     }
 }

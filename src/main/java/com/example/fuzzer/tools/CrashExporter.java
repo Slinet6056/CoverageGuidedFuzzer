@@ -116,18 +116,6 @@ public class CrashExporter {
         return totalCount;
     }
 
-    private static class CrashInfo {
-        final int crashId;
-        final int exitCode;
-        final int length;
-
-        CrashInfo(int crashId, int exitCode, int length) {
-            this.crashId = crashId;
-            this.exitCode = exitCode;
-            this.length = length;
-        }
-    }
-
     public static void main(String[] args) {
         if (args.length != 2) {
             System.out.println("Usage: CrashExporter <block_directory> <output_directory>");
@@ -143,6 +131,18 @@ public class CrashExporter {
             System.err.println("Error exporting crashes: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
+        }
+    }
+
+    private static class CrashInfo {
+        final int crashId;
+        final int exitCode;
+        final int length;
+
+        CrashInfo(int crashId, int exitCode, int length) {
+            this.crashId = crashId;
+            this.exitCode = exitCode;
+            this.length = length;
         }
     }
 }

@@ -206,7 +206,7 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
 
             if (result.getExitCode() != 0) {
                 // 保存crash输入
-                outputManager.saveCrashInput(result.getInput(), result.getExitCode());
+                outputManager.saveCrashInput(result);
                 crashCount.incrementAndGet();
                 lastCrashTime = System.currentTimeMillis();
             }
@@ -369,6 +369,16 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
         }
     }
 
+    /**
+     * 手动保存所有pending的crash
+     * 这个方法可以在任何时候调用来确保所有crash都被保存
+     */
+    public void flushCrashes() {
+        if (outputManager != null) {
+            outputManager.flushCrashes();
+        }
+    }
+
     public void printFinalStats() {
         outputLock.lock();
         try {
@@ -466,6 +476,15 @@ public class FuzzingMonitor implements Monitor, AutoCloseable {
                 }
             } catch (InterruptedException e) {
                 statusUpdater.shutdownNow();
+            }
+        }
+
+        // 关闭outputManager
+        if (outputManager != null) {
+            try {
+                outputManager.close();
+            } catch (Exception e) {
+                System.err.println("Error closing output manager: " + e.getMessage());
             }
         }
     }

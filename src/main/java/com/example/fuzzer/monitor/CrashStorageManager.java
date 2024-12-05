@@ -1,13 +1,13 @@
 package com.example.fuzzer.monitor;
 
+import org.apache.commons.text.similarity.CosineDistance;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,48 +24,22 @@ import java.util.zip.GZIPOutputStream;
  * - 使用异步写入提高性能
  */
 public class CrashStorageManager implements AutoCloseable {
-    private static final int BLOCK_SIZE = 1000; // 每个文件存储的crash数量
+    private static final int BLOCK_SIZE = 100; // 每个文件存储的crash数量
     private static final int BUFFER_SIZE = 1024 * 1024; // 1MB写入缓冲区
     private static final int QUEUE_SIZE = 10000;
+    private static final double ERROR_SIMILARITY_THRESHOLD = 0.8;
 
     private final Path storageDir;
     private final BlockingQueue<CrashEntry> writeQueue;
-    private final Set<String> crashHashes;
     private final Map<Integer, List<CrashMetadata>> crashIndex;
-    private volatile boolean isRunning;
+    private final List<CrashEntry> pendingCrashes = Collections.synchronizedList(new ArrayList<>());
     private final Thread writerThread;
+    private volatile boolean isRunning;
     private int currentBlockId;
-
-    private static class CrashEntry {
-        final byte[] input;
-        final int exitCode;
-        final int crashId;
-
-        CrashEntry(byte[] input, int exitCode, int crashId) {
-            this.input = input;
-            this.exitCode = exitCode;
-            this.crashId = crashId;
-        }
-    }
-
-    private static class CrashMetadata {
-        final int crashId;
-        final int exitCode;
-        final long offset;
-        final int length;
-
-        CrashMetadata(int crashId, int exitCode, long offset, int length) {
-            this.crashId = crashId;
-            this.exitCode = exitCode;
-            this.offset = offset;
-            this.length = length;
-        }
-    }
 
     public CrashStorageManager(Path storageDir) throws IOException {
         this.storageDir = storageDir;
         this.writeQueue = new LinkedBlockingQueue<>(QUEUE_SIZE);
-        this.crashHashes = Collections.synchronizedSet(new HashSet<>());
         this.crashIndex = new ConcurrentHashMap<>();
         this.isRunning = true;
         this.currentBlockId = 0;
@@ -102,39 +76,98 @@ public class CrashStorageManager implements AutoCloseable {
                                     Integer.parseInt(parts[0]),  // crashId
                                     Integer.parseInt(parts[1]),  // exitCode
                                     Long.parseLong(parts[2]),   // offset
-                                    Integer.parseInt(parts[3])   // length
+                                    Integer.parseInt(parts[3]),  // length
+                                    parts.length > 4 ? parts[4] : "" // errorMessage
                             ));
                         }
                     }
 
                     if (!metadata.isEmpty()) {
                         crashIndex.put(blockId, metadata);
-                        // 恢复已存在的crash哈希值
-                        for (CrashMetadata meta : metadata) {
-                            byte[] crashData = retrieveCrash(meta.crashId);
-                            if (crashData != null) {
-                                crashHashes.add(calculateHash(crashData));
-                            }
-                        }
                     }
                 }
             }
         }
     }
 
-    public boolean storeCrash(byte[] input, int exitCode, int crashId) {
-        // 计算输入的哈希值用于去重
-        String hash = calculateHash(input);
-        if (!crashHashes.add(hash)) {
-            return false; // 重复的crash
+    private boolean isErrorMessageSimilar(String newError, String existingError) {
+        if (newError == null || existingError == null) {
+            return false;
         }
 
-        try {
-            writeQueue.put(new CrashEntry(input, exitCode, crashId));
+        // 预处理错误信息
+        newError = preprocessErrorMessage(newError);
+        existingError = preprocessErrorMessage(existingError);
+
+        // 如果预处理后完全相同，直接返回true
+        if (newError.equals(existingError)) {
             return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
+        }
+
+        // 使用余弦距离计算相似度
+        CosineDistance cosineDistance = new CosineDistance();
+        double distance = cosineDistance.apply(newError, existingError);
+        double similarity = 1.0 - distance;
+
+        // 如果相似度大于ERROR_SIMILARITY_THRESHOLD，认为是相似的错误
+        return similarity > ERROR_SIMILARITY_THRESHOLD;
+    }
+
+    private String preprocessErrorMessage(String error) {
+        // 1. 转换为小写
+        error = error.toLowerCase();
+
+        // 2. 移除时间戳、内存地址、数字等变化的部分
+        error = error.replaceAll("0x[0-9a-f]+", "ADDR")  // 内存地址
+                .replaceAll("\\d{2}:\\d{2}:\\d{2}", "TIME")  // 时间戳
+                .replaceAll("\\d+", "NUM")  // 数字
+                .replaceAll("\\s+", " ")  // 多余的空白字符
+                .trim();
+
+        // 3. 提取关键词
+        Set<String> stopWords = new HashSet<>(Arrays.asList(
+                "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with"
+        ));
+
+        // 分词并移除停用词
+        String[] words = error.split("\\s+");
+        StringBuilder processed = new StringBuilder();
+        for (String word : words) {
+            if (!stopWords.contains(word)) {
+                processed.append(word).append(" ");
+            }
+        }
+
+        return processed.toString().trim();
+    }
+
+    public boolean storeCrash(byte[] input, int exitCode, int crashId, String errorMessage) {
+        // 检查已存储的crash
+        for (List<CrashMetadata> metadataList : crashIndex.values()) {
+            for (CrashMetadata metadata : metadataList) {
+                if (isErrorMessageSimilar(errorMessage, metadata.errorMessage)) {
+                    return false;
+                }
+            }
+        }
+
+        // 检查待写入的crash
+        synchronized (pendingCrashes) {
+            for (CrashEntry entry : pendingCrashes) {
+                if (isErrorMessageSimilar(errorMessage, entry.errorMessage)) {
+                    return false;
+                }
+            }
+            CrashEntry newEntry = new CrashEntry(input, exitCode, crashId, errorMessage);
+            pendingCrashes.add(newEntry);
+            try {
+                writeQueue.put(newEntry);
+                return true;
+            } catch (InterruptedException e) {
+                pendingCrashes.remove(newEntry);
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
     }
 
@@ -178,7 +211,7 @@ public class CrashStorageManager implements AutoCloseable {
             long offset = 0;
             for (CrashEntry entry : entries) {
                 gzos.write(entry.input);
-                metadata.add(new CrashMetadata(entry.crashId, entry.exitCode, offset, entry.input.length));
+                metadata.add(new CrashMetadata(entry.crashId, entry.exitCode, offset, entry.input.length, entry.errorMessage));
                 offset += entry.input.length;
             }
 
@@ -187,32 +220,43 @@ public class CrashStorageManager implements AutoCloseable {
             // 保存元数据到单独的文件
             List<String> metadataLines = new ArrayList<>();
             for (CrashMetadata meta : metadata) {
-                metadataLines.add(String.format("%d,%d,%d,%d",
-                        meta.crashId, meta.exitCode, meta.offset, meta.length));
+                metadataLines.add(String.format("%d,%d,%d,%d,%s",
+                        meta.crashId, meta.exitCode, meta.offset, meta.length, meta.errorMessage));
             }
             Files.write(metadataPath, metadataLines);
 
             currentBlockId++;
 
+            // 写入成功后，从pendingCrashes中移除这些entries
+            synchronized (pendingCrashes) {
+                pendingCrashes.removeAll(entries);
+            }
+
         } catch (IOException e) {
-            // 在实际应用中，这里应该有更好的错误处理机制
+            // 写入失败时记录错误并尝试保存到备用位置
             e.printStackTrace();
+            try {
+                Path emergencyPath = storageDir.resolve("emergency_" + blockId + ".gz");
+                Files.write(emergencyPath, entries.get(0).input);
+                for (int i = 1; i < entries.size(); i++) {
+                    Files.write(emergencyPath, entries.get(i).input, java.nio.file.StandardOpenOption.APPEND);
+                }
+            } catch (IOException e2) {
+                e2.printStackTrace();
+            }
         }
     }
 
-    private String calculateHash(byte[] input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input);
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
+    /**
+     * 手动保存所有pending的crash
+     * 这个方法可以在任何时候调用，不会影响正常的写入流程
+     */
+    public void flushPendingCrashes() {
+        synchronized (pendingCrashes) {
+            if (!pendingCrashes.isEmpty()) {
+                List<CrashEntry> remainingCrashes = new ArrayList<>(pendingCrashes);
+                writeBlock(remainingCrashes);
             }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -242,9 +286,55 @@ public class CrashStorageManager implements AutoCloseable {
     public void close() {
         isRunning = false;
         try {
-            writerThread.join(5000); // 等待最多5秒让写入线程完成
+            // 给写入线程更多时间完成
+            writerThread.join(30000); // 等待最多30秒
+
+            // 如果还有未写入的crash，强制写入
+            synchronized (pendingCrashes) {
+                if (!pendingCrashes.isEmpty()) {
+                    List<CrashEntry> remainingCrashes = new ArrayList<>(pendingCrashes);
+                    writeBlock(remainingCrashes);
+                }
+            }
         } catch (InterruptedException e) {
+            // 如果在等待过程中被中断，仍然尝试保存剩余的crash
+            synchronized (pendingCrashes) {
+                if (!pendingCrashes.isEmpty()) {
+                    List<CrashEntry> remainingCrashes = new ArrayList<>(pendingCrashes);
+                    writeBlock(remainingCrashes);
+                }
+            }
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static class CrashEntry {
+        final byte[] input;
+        final int exitCode;
+        final int crashId;
+        final String errorMessage;
+
+        CrashEntry(byte[] input, int exitCode, int crashId, String errorMessage) {
+            this.input = input;
+            this.exitCode = exitCode;
+            this.crashId = crashId;
+            this.errorMessage = errorMessage;
+        }
+    }
+
+    private static class CrashMetadata {
+        final int crashId;
+        final int exitCode;
+        final long offset;
+        final int length;
+        final String errorMessage;
+
+        CrashMetadata(int crashId, int exitCode, long offset, int length, String errorMessage) {
+            this.crashId = crashId;
+            this.exitCode = exitCode;
+            this.offset = offset;
+            this.length = length;
+            this.errorMessage = errorMessage;
         }
     }
 }
