@@ -1,0 +1,37 @@
+FROM ubuntu:22.04
+
+# Install necessary packages
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    wget \
+    openjdk-11-jdk \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy the project files
+COPY pom.xml .
+COPY src src/ 
+
+# Build the project
+RUN mvn clean package
+
+# Clone and build fuzz targets
+RUN git clone https://github.com/Slinet6056/NJU-AT-fuzz-targets.git && \
+    cd NJU-AT-fuzz-targets/sh && \
+    chmod +x build_all.sh && \
+    ./build_all.sh && \
+    cd .. && \
+    mv output /workspace/fuzz-targets
+
+# Download and extract results
+RUN wget https://github.com/Slinet6056/CoverageGuidedFuzzer/releases/download/results/results.tar.gz && \
+    tar xf results.tar.gz && \
+    mv results fuzz-results && \
+    rm results.tar.gz
+
+# Set default command to bash
+CMD ["/bin/bash"]

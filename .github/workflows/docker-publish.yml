@@ -5,7 +5,7 @@ on:
     branches: ["master"]
   pull_request:
     branches: ["master"]
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 env:
   REGISTRY: docker.io
@@ -17,6 +17,20 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        docker_type: [base, interactive]
+        include:
+          - docker_type: base
+            dockerfile: ./docker/Dockerfile
+            tags: |
+              type=raw,value=latest
+              type=sha,format=short
+          - docker_type: interactive
+            dockerfile: ./docker/Dockerfile.interactive
+            tags: |
+              type=raw,value=interactive
+              type=sha,format=short,suffix=-interactive
 
     steps:
       - name: Checkout repository
@@ -33,15 +47,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=sha,format=short
+          tags: ${{ matrix.tags }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
