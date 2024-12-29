@@ -4,6 +4,8 @@
 
 演示视频：[哔哩哔哩](https://www.bilibili.com/video/BV1cz6tYpELL/)
 
+评估结果图表位于 [plots](./plots/) 文件夹中。
+
 ## 功能特性
 
 - 支持多线程并行模糊测试
