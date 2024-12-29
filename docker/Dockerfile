@@ -1,10 +1,16 @@
 FROM ubuntu:22.04
 
-# Install OpenJDK and required tools
+# Install OpenJDK, required tools and Chinese support
 RUN apt-get update && apt-get install -y \
     openjdk-11-jdk \
     maven \
+    fonts-wqy-microhei \
+    fonts-wqy-zenhei \
+    language-pack-zh-hans \
     && rm -rf /var/lib/apt/lists/*
+
+# Set Chinese locale
+ENV LANG zh_CN.UTF-8
 
 # Set working directory
 WORKDIR /app
