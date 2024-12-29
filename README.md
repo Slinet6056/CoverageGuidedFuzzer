@@ -113,6 +113,8 @@ java -Djava.library.path=./src/main/native \
 
 #### 预备文件
 
+为了方便快速构建所有目标程序并生成初始种子，开发了一个辅助工具：[Slinet6056/NJU-AT-fuzz-targets](https://github.com/Slinet6056/NJU-AT-fuzz-targets)，可以一键完成目标程序的下载、编译、插装和初始种子的生成。
+
 容器中已经准备了10个模糊测试目标，位于`/workspace/fuzz-targets`目录下：
 
 ```
