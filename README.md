@@ -22,18 +22,18 @@
 
 ```
 src/main/java/com/example/fuzzer/
-├── Fuzzer.java           # 模糊测试器主类
-├── execution/            # 测试用例执行模块
-├── logging/             # 日志记录模块
+├── Fuzzer.java         # 模糊测试器主类
+├── execution/          # 测试用例执行模块
+├── logging/            # 日志记录模块
 ├── monitor/            # 监控和结果管理
 ├── mutation/           # 变异策略实现
 ├── schedule/           # 调度管理
-│   ├── core/          # 核心调度器
-│   ├── energy/        # 能量调度策略
-│   ├── model/         # 数据模型
-│   └── sort/          # 种子排序策略
+│   ├── core/           # 核心调度器
+│   ├── energy/         # 能量调度策略
+│   ├── model/          # 数据模型
+│   └── sort/           # 种子排序策略
 ├── sharedmemory/       # 共享内存实现
-└── tools/             # 辅助工具
+└── tools/              # 辅助工具
 ```
 
 ## 部署和使用
